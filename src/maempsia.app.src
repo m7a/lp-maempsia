@@ -1,0 +1,15 @@
+{application, maempsia, [
+	{description,  "Ma_Sys.ma Erlang Music Player SideCar Automation"},
+	{vsn,          "0.0.1"},
+	{registered,   []},
+	{mod,          {maempsia_app, []}},
+	{applications, [kernel, stdlib, sasl, jiffy, erlmpd, mochiweb]},
+	% sqlite3 may only be used after running:
+	% /usr/lib/erlang/lib# ln -s p1_sqlite3-1.1.14 sqlite3-1.1.14
+	% and then recompiling the application...
+	{optional_applications, [sqlite3]},
+	{env,          []},
+	{modules,      []},
+	{licenses,     ["GPL-3+"]},
+	{links,        []}
+]}.

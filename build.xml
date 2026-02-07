@@ -1,0 +1,72 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project default="build">
+
+<!-- APPLICATION METADATA -->
+<property name="masysma.target" value="maempsia"/>
+<property name="mdpc.name"      value="mdvl-maempsia"/>
+<property name="mdpc.section"   value="sound"/>
+<property name="mdpc.descrs"
+		>Ma_Sys.ma Erlang Music Player SideCar Automation</property>
+<property name="mdpc.arch"      value="any"/>
+<property name="mdpc.depends"
+	>erlang-base, erlang-jiffy, erlang-mochiweb, mdvl-erlmpd</property>
+<property name="mdpc.recommends" value="erlang-p1-sqlite3"/>
+<property name="mdpc.bdep">rebar3, mdvl-erlmpd, erlang-mochiweb, erlang-jiffy,
+	config-package-dev, debhelper-compat (= 13)</property>
+<property name="mdpc.descrl">
+ Experimental Audio Player
+</property>
+
+<property name="mdpc.file.install">
+_build/default/rel/maempsia /usr/share/mdvl-maempsia
+_build/default/lib/maempsia/ebin /usr/share/mdvl-maempsia/maempsia/lib/maempsia-0.0.1
+src /usr/share/mdvl-maempsia/maempsia/lib/maempsia-0.0.1
+config/sys.config /usr/share/mdvl-maempsia/maempsia/releases/0.0.1
+config/vm.args /usr/share/mdvl-maempsia/maempsia/releases/0.0.1
+maempsia /usr/bin
+</property>
+
+<!-- PART OF TPL HERE FOR USE IN BUILD -->
+<property environment="env"/>
+<condition property="masysma.internal.includepath.rel" value="${env.MDVL_CI_PHOENIX_ROOT}" else=".."><isset property="env.MDVL_CI_PHOENIX_ROOT"/></condition>
+<property name="masysma.internal.includepath" location="${masysma.internal.includepath.rel}"/>
+
+<target name="build"> <!-- inspired by / aligned with D5Man2 TUI build -->
+	<exec executable="rebar3" failonerror="true">
+		<arg value="release"/>
+	</exec>
+	<!-- allow us to override the symlink with the actual contents here -->
+<!--
+	<delete dir="_build/default/rel/${masysma.target}/lib/${masysma.target}-0.0.1"
+		followSymlinks="false" removeNotFollowedSymlinks="true"/>
+	<delete file="_build/default/rel/${masysma.target}/releases/0.0.1/vm.args"
+		followSymlinks="false" removeNotFollowedSymlinks="true"/>
+	<delete file="_build/default/rel/${masysma.target}/releases/0.0.1/sys.config"
+		followSymlinks="false" removeNotFollowedSymlinks="true"/>
+-->
+</target>
+
+<target name="run" depends="build">
+	<exec executable="/bin/sh" failonerror="false">
+		<arg value="-ec"/>
+		<arg value="./_build/default/rel/${masysma.target}/bin/${masysma.target} foreground &lt; /dev/tty &gt; /dev/tty 2&gt; /dev/tty"/>
+	</exec>
+</target>
+
+<target name="clean">
+	<exec executable="rebar3" failonerror="true">
+		<arg value="clean"/>
+	</exec>
+</target>
+
+<target name="dist-clean">
+	<delete dir="_build" followSymlinks="false"
+		includeemptydirs="true" removeNotFollowedSymlinks="true"/>
+</target>
+
+<!-- TPL IMPORT (PARTIALLY GIVEN ABOVE) -->
+<property name="masysma.internal.loadpath" value="${masysma.internal.includepath}/co-build/ant-build-template.xml"/>
+<condition property="masysma.internal.load" value="file://${masysma.internal.loadpath}" else="https://raw.githubusercontent.com/m7a/co-build/master/ant-build-template.xml"><resourceexists><file file="${masysma.internal.loadpath}"/></resourceexists></condition>
+<import><url url="${masysma.internal.load}"/></import>
+
+</project>
