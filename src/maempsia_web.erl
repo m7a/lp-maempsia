@@ -32,6 +32,7 @@
 start(Options) ->
 	MPD = proplists:get_value(mpd, Options),
 	ServerOptions = proplists:delete(mpd, Options),
+	% TODO THERE IS ALSO A start_link version which I should probably prefer?
 	mochiweb_http:start([{name, ?MODULE}|[{loop, fun(Req) ->
 							loop(MPD, Req)
 						end}|ServerOptions]]).
@@ -57,6 +58,8 @@ loop(MPD, Req) ->
 		process_add_album(MPD, Req);
 	"/add_song_from_songs.erl" when Method =:= 'POST' ->
 		process_add_song(MPD, Req, "songs.xhtml");
+	"/add_song_from_playlist.erl" when Method =:= 'POST' ->
+		process_add_song(MPD, Req, "playlist.xhtml");
 	_Other ->
 		mochiweb_request:respond({404, [{"Content-Type", "text/plain"}],
 					"not found\n"}, Req)
@@ -91,12 +94,47 @@ generate_navigation(OnPage) ->
 		{<<"Songs">>,    <<"songs.xhtml">>}
 	]], <<"</p>\n">>].
 
-respond_tab_playlist(_MPD, Req) ->
-	% TODO NEXT - FILL IN PLAYLIST TAB
-	respond_with_page(<<"Hello world">>, <<"playlist.xhtml">>, Req).
+respond_tab_playlist(MPD, Req) ->
+	% TODO WORK ON HOME PAGE FIRST BEFORE CONTINUING THIS ONE BECAUSE THE PLAYLIST IS REALLY TOO LARGE AND IT TAKES AGES TO LOAD (> 30sec, too much for Firefox to accept it as valid but w3m and chromium work) Maybe here, too, limit it to 1000 entries or such (100 first+900 last or what?)? ASTAT FIRST DO ERLMPD CHANGE tagtypes PROPERLY AND THEN PROCEED HERE...
+	{ok, Conn} = erlmpd_connect(MPD),
+	ok = erlmpd:tagtypes_clear(Conn),
+	ok = erlmpd:tagtypes_enable(Conn, [artist, album, title, albumartist]),
+	Rows = [generate_playlist_row(Conn, Song)
+					|| Song <- erlmpd:playlistinfo(Conn)],
+	erlmpd:disconnect(Conn),
+	respond_with_page([<<"\t\t<table border=\"1\">
+			<thead><tr>
+				<th>Action</th>
+				<th>Rated</th>
+				<th>Artist</th>
+				<th>Title</th>
+				<th>MM:ss</th>
+				<th>Action</th>
+			</tr></thead>
+			<tbody>\n">>, Rows, <<"\t\t\t</tbody>\n\t\t</table>">>],
+		<<"playlist.xhtml">>, Req).
+
+generate_playlist_row(Conn, Song) ->
+	URI = proplists:get_value(file, Song),
+	[<<"\t\t\t\t<tr>">>,
+	format_add_song_td(URI, <<"add_song_from_playlist.erl">>),
+	<<"<td>">>, format_rating(rating_for_uri(URI, Conn)),
+	<<"</td><td>">>, format_artist(Song),
+	<<"</td><td>">>, format_title(Song),
+	<<"</td><td>">>, format_duration(Song),
+	<<"</td><td><form method=\"post\" action=\"modify_playlist.erl\">
+	\t\t\t\t<input type=\"hidden\" name=\"id\" value=\"">>, 
+		integer_to_binary(proplists:get_value('Id', Song)), <<"\"/>
+	\t\t\t\t<input type=\"submit\" name=\"act_remove\" value=\"-\"/>
+	\t\t\t\t<input type=\"submit\" name=\"act_play\" value=\"&#9205;\"/>
+	\t\t\t</form></td></tr>\n">>].
 
 respond_tab_songs(MPD, Req) ->
 	{ok, Conn} = erlmpd_connect(MPD),
+	% This tag type limiting brings a massive performance improvement
+	ok = erlmpd:tagtypes_clear(Conn),
+	ok = erlmpd:tagtypes_enable(Conn,
+			[track, artist, album, date, title, albumartist, disc]),
 	Rows = [generate_songs_rows(Conn, Artist) ||
 				Artist <- erlmpd:list(Conn, albumartist)],
 	erlmpd:disconnect(Conn),
@@ -134,8 +172,7 @@ accumulate_row(Conn, Song, {Meta, Acc}) ->
 	end]}.
 
 format_header(Song) ->
-	ArtistQuot = quote_xml(proplists:get_value('AlbumArtist', Song,
-		proplists:get_value('Artist', Song, <<"(unknown artist)">>))),
+	ArtistQuot = format_artist(Song),
 	AlbumQuot = quote_xml(proplists:get_value('Album', Song,
 							<<"(unknown album)">>)),
 	Disc = proplists:get_value('Disc', Song, -1),
@@ -159,6 +196,10 @@ format_header(Song) ->
 	\t\t\t\t</form>
 	\t\t\t</td></tr>\n">>].
 
+format_artist(Song) ->
+	quote_xml(proplists:get_value('AlbumArtist', Song,
+		proplists:get_value('Artist', Song, <<"(unknown artist)">>))).
+
 % https://stackoverflow.com/questions/3339014/how-do-i-xml-encode-a-string-in
 quote_xml(Str) -> lists:map(fun quote_xml_char/1,
 				lists:flatten(io_lib:format("~s", [Str]))).
@@ -170,25 +211,27 @@ quote_xml_char($') -> <<"&apos;">>;
 quote_xml_char(C)  -> C.
 
 format_song(Conn, Song) ->
-	TitleQuot = quote_xml(proplists:get_value('Title', Song,
-							<<"(untitled)">>)),
 	URI = proplists:get_value(file, Song),
-	[<<"\t\t\t\t<tr><td>
-	\t\t\t\t<form method=\"post\" action=\"add_song_from_songs.erl\">
+	[<<"\t\t\t\t<tr>">>,
+	format_add_song_td(URI, <<"add_song_from_songs.erl">>),
+	<<"<td>">>, format_rating(rating_for_uri(URI, Conn)),
+	<<"</td><td>">>,
+	integer_to_binary(proplists:get_value('Track', Song, 0)),
+	<<"</td><td>">>, format_title(Song),
+	<<"</td><td>">>, format_duration(Song), <<"</td></tr>\n">>].
+
+format_title(Song) ->
+	quote_xml(proplists:get_value('Title', Song, <<"(untitled)">>)).
+
+format_add_song_td(URI, Action) ->
+	[<<"<td>
+	\t\t\t\t<form method=\"post\" action=\"">>, Action, <<"\">
 	\t\t\t\t\t<input type=\"hidden\" name=\"file\" value=\"">>,
 							quote_xml(URI), <<"\"/>
 	\t\t\t\t\t<input type=\"submit\" name=\"add_end\" value=\"a\"/>
 	\t\t\t\t\t<input type=\"submit\" name=\"add_here\" value=\"A\"/>
 	\t\t\t\t</form>
-	\t\t\t</td><td>">>,
-	format_rating(rating_for_uri(URI, Conn)),
-	<<"</td><td>">>,
-	integer_to_binary(proplists:get_value('Track', Song, 0)),
-	<<"</td><td>">>,
-	TitleQuot,
-	<<"</td><td>">>,
-	format_duration(max(1, proplists:get_value('Time', Song, 1))),
-	<<"</td></tr>\n">>].
+	\t\t\t</td>">>].
 
 rating_for_uri(URI, Conn) ->
 	case erlmpd:sticker_get(Conn, "song", binary_to_list(URI), "rating") of
@@ -210,7 +253,10 @@ format_rating( 1)              -> <<"&#9734;....">>;
 format_rating( 0)              -> <<".....">>;
 format_rating(_Other)          -> <<"!ERR!">>.
 
-format_duration(Duration) ->
+format_duration(Song) ->
+	format_duration_time(max(1, proplists:get_value('Time', Song, 1))).
+
+format_duration_time(Duration) ->
 	list_to_binary(io_lib:format("~2..0w:~2..0w",
 					[Duration div 60, Duration rem 60])).
 
