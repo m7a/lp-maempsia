@@ -3,6 +3,7 @@
 -export([start/1, stop/0]).
 
 -define(RATING_UNRATED, -1).
+-define(MAX_PL, 1000). % maximum playlist length to load
 
 % ---------------------------------------------------------------[ Templates ]--
 -define(XHTML_TPL_TOP,
@@ -27,6 +28,17 @@
 	</body>
 </html>
 ">>).
+-define(XHTML_PLAYLIST_TOP, <<"\t\t<table border=\"1\">
+			<thead><tr>
+				<th>Action</th>
+				<th>Rated</th>
+				<th>Artist</th>
+				<th>Title</th>
+				<th>MM:ss</th>
+				<th>Action</th>
+			</tr></thead>
+			<tbody>\n">>).
+-define(XHTML_PLAYLIST_BOT, <<"\t\t\t</tbody>\n\t\t</table>">>).
 
 % --------------------------------------------------------------------[ Code ]--
 start(Options) ->
@@ -68,16 +80,46 @@ loop(MPD, Req) ->
 redirect(Target, Req) ->
 	mochiweb_request:respond({302, [{"Location", Target}], ""}, Req).
 
-respond_tab_start(_MPD, Req) ->
-	respond_with_page(<<"Hello world">>, <<"index.xhtml">>, Req).
+respond_tab_start(MPD, Req) ->
+	{ok, Conn} = erlmpd_connect(MPD),
+	Status  = erlmpd:status(Conn),
+	CurID   = proplists:get_value(songid, Status, -1),
+	CurPOS  = max(1, proplists:get_value(song, Status, 1)),
+	CurSong = erlmpd:currentsong(Conn),
+	PLength = proplists:get_value(playlistlength, Status, 0),
+	PLRows  = [generate_playlist_row(Conn, CurID, Song) || Song <-
+			erlmpd:playlistinfo(Conn, {CurPOS - 1, PLength})],
+	erlmpd:disconnect(Conn),
+
+	SongInfo = [format_artist(CurSong), <<", ">>, format_date(CurSong),
+					<<": ">>, format_title(CurSong)],
+	VolumeInfo = case proplists:get_value(volume, Status) of
+			undefined -> <<"?">>;
+			-1        -> <<"?">>;
+			PercVal   -> [integer_to_binary(PercVal), <<"%">>]
+		end,
+	TimeInfo = [format_duration_time(floor(proplists:get_value(time, Status,
+			0))), <<"|">>, format_duration_time(ceil(binary_to_float
+			(proplists:get_value(duration, Status, <<"0.0">>))))],
+	% TODO ASTAT FORMS AND BUTTONS AND ONCE IT IS IN CONTINUE WITH THE SERVICES AND ONCE THEY ARE IN ADD THE TABLE ABOUT THE RADIO PLAYLIST HERE
+	respond_with_page([
+		?XHTML_PLAYLIST_TOP, PLRows, ?XHTML_PLAYLIST_BOT,
+		<<"\t\t<table border=\"1\">
+			<tr>
+				<td rowspan=\"2\">Play/Pause</td>
+				<td>">>, SongInfo, <<"</td>
+				<td rowspan=\"2\">Vol-</td>
+				<td rowspan=\"2\">">>, VolumeInfo, <<"</td>
+				<td rowspan=\"2\">Vol+</td>
+			</tr>
+			<tr><td>">>, TimeInfo, <<"</td></tr>\n\t\t</table>\n">>
+	], <<"index.xhtml">>, Req).
 
 respond_with_page(Text, OnPage, Req) ->
 	mochiweb_request:respond({200, [
 		{"Content-Type", "application/xhtml+xml; charset=UTF-8"}
 	], [
-		?XHTML_TPL_TOP,
-		generate_navigation(OnPage),
-		Text,
+		?XHTML_TPL_TOP, generate_navigation(OnPage), Text,
 		?XHTML_TPL_BOT
 	]}, Req).
 
@@ -95,36 +137,44 @@ generate_navigation(OnPage) ->
 	]], <<"</p>\n">>].
 
 respond_tab_playlist(MPD, Req) ->
-	% TODO WORK ON HOME PAGE FIRST BEFORE CONTINUING THIS ONE BECAUSE THE PLAYLIST IS REALLY TOO LARGE AND IT TAKES AGES TO LOAD (> 30sec, too much for Firefox to accept it as valid but w3m and chromium work) Maybe here, too, limit it to 1000 entries or such (100 first+900 last or what?)? ASTAT FIRST DO ERLMPD CHANGE tagtypes PROPERLY AND THEN PROCEED HERE...
 	{ok, Conn} = erlmpd_connect(MPD),
 	ok = erlmpd:tagtypes_clear(Conn),
 	ok = erlmpd:tagtypes_enable(Conn, [artist, album, title, albumartist]),
-	Rows = [generate_playlist_row(Conn, Song)
-					|| Song <- erlmpd:playlistinfo(Conn)],
+	Status  = erlmpd:status(Conn),
+	PLength = proplists:get_value(playlistlength, Status, 0),
+	Curs    = proplists:get_value(songid, Status, -1),
+	Rows = case PLength > ?MAX_PL of
+		true -> [[<<"\t\t\t\t<tr><td>...</td><td>...</td>">>,
+					<<"<td colspan=\"2\"><em>Skipped ">>,
+					integer_to_binary(PLength - 600),
+					<<" playlist entries.</em></td>">>,
+					<<"<td>...</td><td>...</td></tr>\n">>]
+				|[generate_playlist_row(Conn, Curs, Song)
+					|| Song <- erlmpd:playlistinfo(Conn,
+					{PLength - ?MAX_PL + 1, PLength})]];
+		false -> [generate_playlist_row(Conn, Curs, Song) ||
+					Song <- erlmpd:playlistinfo(Conn)]
+		end,
 	erlmpd:disconnect(Conn),
-	respond_with_page([<<"\t\t<table border=\"1\">
-			<thead><tr>
-				<th>Action</th>
-				<th>Rated</th>
-				<th>Artist</th>
-				<th>Title</th>
-				<th>MM:ss</th>
-				<th>Action</th>
-			</tr></thead>
-			<tbody>\n">>, Rows, <<"\t\t\t</tbody>\n\t\t</table>">>],
-		<<"playlist.xhtml">>, Req).
+	respond_with_page([?XHTML_PLAYLIST_TOP, Rows, ?XHTML_PLAYLIST_BOT],
+						<<"playlist.xhtml">>, Req).
 
-generate_playlist_row(Conn, Song) ->
+generate_playlist_row(Conn, Curs, Song) ->
 	URI = proplists:get_value(file, Song),
+	ID  = proplists:get_value('Id', Song),
+	{BO, BC} = case ID =:= Curs of
+			true  -> {<<"<strong>">>, <<"</strong>">>};
+			false -> {<<>>, <<>>}
+		end,
 	[<<"\t\t\t\t<tr>">>,
 	format_add_song_td(URI, <<"add_song_from_playlist.erl">>),
-	<<"<td>">>, format_rating(rating_for_uri(URI, Conn)),
-	<<"</td><td>">>, format_artist(Song),
-	<<"</td><td>">>, format_title(Song),
-	<<"</td><td>">>, format_duration(Song),
+	<<"<td>">>,      BO, format_rating(rating_for_uri(URI, Conn)), BC,
+	<<"</td><td>">>, BO, format_artist(Song),                      BC,
+	<<"</td><td>">>, BO, format_title(Song),                       BC,
+	<<"</td><td>">>, BO, format_duration(Song),                    BC,
 	<<"</td><td><form method=\"post\" action=\"modify_playlist.erl\">
-	\t\t\t\t<input type=\"hidden\" name=\"id\" value=\"">>, 
-		integer_to_binary(proplists:get_value('Id', Song)), <<"\"/>
+	\t\t\t\t<input type=\"hidden\" name=\"id\" value=\"">>,
+						integer_to_binary(ID), <<"\"/>
 	\t\t\t\t<input type=\"submit\" name=\"act_remove\" value=\"-\"/>
 	\t\t\t\t<input type=\"submit\" name=\"act_play\" value=\"&#9205;\"/>
 	\t\t\t</form></td></tr>\n">>].
@@ -136,7 +186,7 @@ respond_tab_songs(MPD, Req) ->
 	ok = erlmpd:tagtypes_enable(Conn,
 			[track, artist, album, date, title, albumartist, disc]),
 	Rows = [generate_songs_rows(Conn, Artist) ||
-				Artist <- erlmpd:list(Conn, albumartist)],
+		Artist <- erlmpd:list(Conn, albumartist), Artist /= <<>>],
 	erlmpd:disconnect(Conn),
 	respond_with_page([<<"\t\t<table border=\"1\">\n
 			<thead><tr>
@@ -182,7 +232,7 @@ format_header(Song) ->
 			_Disc -> [<<" (">>, integer_to_binary(Disc), <<")">>]
 		end,
 	[<<"\t\t\t\t<tr><th colspan=\"4\">">>, ArtistQuot,
-	<<" (">>, quote_xml(proplists:get_value('Date', Song, <<"?">>)),
+	<<" (">>, format_date(Song),
 	<<"): ">>, AlbumQuot, DiscInfo, <<"</th><td>
 	\t\t\t\t<form method=\"post\" action=\"add_album.erl\">
 	\t\t\t\t\t<input type=\"hidden\" name=\"artist\" value=\"">>,
@@ -199,6 +249,9 @@ format_header(Song) ->
 format_artist(Song) ->
 	quote_xml(proplists:get_value('AlbumArtist', Song,
 		proplists:get_value('Artist', Song, <<"(unknown artist)">>))).
+
+format_date(Song) ->
+	quote_xml(proplists:get_value('Date', Song, <<"?">>)).
 
 % https://stackoverflow.com/questions/3339014/how-do-i-xml-encode-a-string-in
 quote_xml(Str) -> lists:map(fun quote_xml_char/1,
