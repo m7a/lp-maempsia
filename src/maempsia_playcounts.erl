@@ -1,7 +1,7 @@
 -module(maempsia_playcounts).
+-export([run/2]).
 -include_lib("kernel/include/logger.hrl").
 -include_lib("stdlib/include/ms_transform.hrl").
--export([run/2]).
 
 % key = {Artist, Album, Title}
 -record(csong, {key, uri, count_sticker, count_scrobble}).
@@ -10,14 +10,13 @@ run(MPD, Maloja) ->
 	MalojaConn = {maps:get(url, Maloja), maps:get(key, Maloja)},
 	IgnoreScrobbles = sets:from_list(read_ignore_file(maps:get(ignore_file,
 								Maloja))),
-	{Host, Port} = maps:get(ip, MPD),
 	ets:new(csongs, [set, named_table, {keypos, #csong.key}]),
-	case with_connection(Host, Port, fun read_song_database/1) of
+	case with_connection(MPD, fun read_song_database/1) of
 	ok ->
 		read_assign_scrobbles(MalojaConn, IgnoreScrobbles),
 		% open a new connection to apply the changes because reading
 		% scrobbles may take arbitrarily long
-		with_connection(Host, Port, fun apply_sticker_changes/1);
+		with_connection(MPD, fun apply_sticker_changes/1);
 	Error ->
 		?LOG_ERROR("Failed to read song DB ~p", [Error])
 	end,
@@ -43,13 +42,10 @@ read_ignore_file(PossibleFile) ->
 		[]
 	end.
 
-with_connection(Host, Port, CB) ->
-	case erlmpd:connect(Host, Port) of
-	{ok, Conn} ->
-		CB(Conn);
-	Error ->
-		?LOG_ERROR("Failed to connect ~p", [Error]),
-		{error, Error}
+with_connection(MPD, CB) ->
+	case maempsia_erlmpd:connect(MPD) of
+	{ok, Conn} -> CB(Conn);
+	Error      -> {error, Error}
 	end.
 
 read_song_database(Conn) ->

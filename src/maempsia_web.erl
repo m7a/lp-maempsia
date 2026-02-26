@@ -81,7 +81,7 @@ redirect(Target, Req) ->
 	mochiweb_request:respond({302, [{"Location", Target}], ""}, Req).
 
 respond_tab_start(MPD, Req) ->
-	{ok, Conn} = erlmpd_connect(MPD),
+	{ok, Conn} = maempsia_erlmpd:connect(MPD),
 	Status  = erlmpd:status(Conn),
 	CurID   = proplists:get_value(songid, Status, -1),
 	CurPOS  = max(1, proplists:get_value(song, Status, 1)),
@@ -137,7 +137,7 @@ generate_navigation(OnPage) ->
 	]], <<"</p>\n">>].
 
 respond_tab_playlist(MPD, Req) ->
-	{ok, Conn} = erlmpd_connect(MPD),
+	{ok, Conn} = maempsia_erlmpd:connect(MPD),
 	ok = erlmpd:tagtypes_clear(Conn),
 	ok = erlmpd:tagtypes_enable(Conn, [artist, album, title, albumartist]),
 	Status  = erlmpd:status(Conn),
@@ -180,7 +180,7 @@ generate_playlist_row(Conn, Curs, Song) ->
 	\t\t\t</form></td></tr>\n">>].
 
 respond_tab_songs(MPD, Req) ->
-	{ok, Conn} = erlmpd_connect(MPD),
+	{ok, Conn} = maempsia_erlmpd:connect(MPD),
 	% This tag type limiting brings a massive performance improvement
 	ok = erlmpd:tagtypes_clear(Conn),
 	ok = erlmpd:tagtypes_enable(Conn,
@@ -200,10 +200,6 @@ respond_tab_songs(MPD, Req) ->
 				Rows,
 			<<"\t\t\t</tbody>\n\t\t</table>\n">>],
 		<<"songs.xhtml">>, Req).
-
-erlmpd_connect(MPD) ->
-	{Host, Port} = maps:get(ip, MPD),
-	erlmpd:connect(Host, Port).
 
 generate_songs_rows(Conn, Artist) ->
 	{_Meta, Val} = lists:foldl(fun(Song, MetaAcc) ->
@@ -337,7 +333,7 @@ process_add_album(MPD, Req) ->
 			Disc -> [{tagop, disc, eq, Disc}]
 		end,
 
-	{ok, Conn} = erlmpd_connect(MPD),
+	{ok, Conn} = maempsia_erlmpd:connect(MPD),
 	SongsURIs = [proplists:get_value(file, Song)
 		|| Song <- sort_songs(erlmpd:find(Conn, {land, DiscFlt ++ [
 			{tagop, album, eq, proplists:get_value("album", Form)},
@@ -378,7 +374,7 @@ process_add_song(MPD, Req, ReturnTo) ->
 	Form = mochiweb_util:parse_qs(mochiweb_request:recv_body(Req)),
 	% TODO x SECURITY - VALIDATE URI BEFORE PASSING TO API HERE
 	URI = proplists:get_value("file", Form),
-	{ok, Conn} = erlmpd_connect(MPD),
+	{ok, Conn} = maempsia_erlmpd:connect(MPD),
 	case is_add_here(Form) of
 	true ->
 		case erlmpd:addid_relative(Conn, URI, 0) of
