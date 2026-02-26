@@ -1,6 +1,8 @@
 -module(maempsia_erlmpd).
--export([connect/1]).
+-export([connect/1, foreach_song/3, get_playcount/2, get_rating/2]).
 -include_lib("kernel/include/logger.hrl").
+
+-define(RATING_UNRATED, -1).
 
 connect(MPD) ->
 	{Host, Port} = maps:get(ip, MPD),
@@ -10,4 +12,38 @@ connect(MPD) ->
 	Error ->
 		?LOG_ERROR("Failed to connect to ~p: ~p", [MPD, Error]),
 		Error
+	end.
+
+% Traverse large output results with efficient WINDOW batch sizes
+foreach_song(Conn, Filter, Callback) ->
+	Stats    = erlmpd:count(Conn, Filter),
+	NumSongs = proplists:get_value(songs, Stats, 0),
+	?LOG_INFO("Found ~p songs in the database", [NumSongs]),
+	foreach_song_in_db(Conn, Filter, Callback, 0, NumSongs).
+
+foreach_song_in_db(_Conn, _Filter, _CB, _Start, 0) ->
+	ok;
+foreach_song_in_db(_Conn, _Filter, _CB, _Start, CountRemaining)
+						when CountRemaining < 0 ->
+	{error, {assert_ge_0, CountRemaining}};
+foreach_song_in_db(Conn, Filter, CB, Start, CountRemaining) ->
+	Proc = min(CountRemaining, 300), % 200..500 were the fastest batch sizes
+	End  = Start + Proc,
+	?LOG_INFO("foreach_song_in_db start=~p end=~p proc=~p progress=~f%",
+		[Start, End, Proc, Start * 100 / (Start + CountRemaining)]),
+	lists:foreach(CB, erlmpd:find_ex(Conn, Filter,
+						[{window, {Start, End}}])),
+	foreach_song_in_db(Conn, Filter, CB, End, CountRemaining - Proc).
+
+get_playcount(Conn, URI) ->
+	case erlmpd:sticker_get(Conn, "song", binary_to_list(URI),
+								"playCount") of
+	{error, _Any}   -> 0;
+	ProperPlaycount -> list_to_integer(ProperPlaycount)
+	end.
+
+get_rating(Conn, URI) ->
+	case erlmpd:sticker_get(Conn, "song", binary_to_list(URI), "rating") of
+	{error, _Any} -> ?RATING_UNRATED;
+	ProperRating  -> list_to_integer(ProperRating)
 	end.

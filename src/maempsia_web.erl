@@ -168,10 +168,11 @@ generate_playlist_row(Conn, Curs, Song) ->
 		end,
 	[<<"\t\t\t\t<tr>">>,
 	format_add_song_td(URI, <<"add_song_from_playlist.erl">>),
-	<<"<td>">>,      BO, format_rating(rating_for_uri(URI, Conn)), BC,
-	<<"</td><td>">>, BO, format_artist(Song),                      BC,
-	<<"</td><td>">>, BO, format_title(Song),                       BC,
-	<<"</td><td>">>, BO, format_duration(Song),                    BC,
+	<<"<td>">>,      BO, format_rating(
+				maempsia_erlmpd:get_rating(Conn, URI)), BC,
+	<<"</td><td>">>, BO, format_artist(Song),                       BC,
+	<<"</td><td>">>, BO, format_title(Song),                        BC,
+	<<"</td><td>">>, BO, format_duration(Song),                     BC,
 	<<"</td><td><form method=\"post\" action=\"modify_playlist.erl\">
 	\t\t\t\t<input type=\"hidden\" name=\"id\" value=\"">>,
 						integer_to_binary(ID), <<"\"/>
@@ -263,7 +264,7 @@ format_song(Conn, Song) ->
 	URI = proplists:get_value(file, Song),
 	[<<"\t\t\t\t<tr>">>,
 	format_add_song_td(URI, <<"add_song_from_songs.erl">>),
-	<<"<td>">>, format_rating(rating_for_uri(URI, Conn)),
+	<<"<td>">>, format_rating(maempsia_erlmpd:get_rating(Conn, URI)),
 	<<"</td><td>">>,
 	integer_to_binary(proplists:get_value('Track', Song, 0)),
 	<<"</td><td>">>, format_title(Song),
@@ -281,12 +282,6 @@ format_add_song_td(URI, Action) ->
 	\t\t\t\t\t<input type=\"submit\" name=\"add_here\" value=\"A\"/>
 	\t\t\t\t</form>
 	\t\t\t</td>">>].
-
-rating_for_uri(URI, Conn) ->
-	case erlmpd:sticker_get(Conn, "song", binary_to_list(URI), "rating") of
-	{error, _Any} -> ?RATING_UNRATED;
-	ProperRating  -> list_to_integer(ProperRating)
-	end.
 
 format_rating(?RATING_UNRATED) -> <<"- - -">>;
 format_rating(10)              -> <<"&#9733;&#9733;&#9733;&#9733;&#9733;">>;

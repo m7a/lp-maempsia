@@ -10,7 +10,7 @@ run(MPD, Maloja) ->
 	MalojaConn = {maps:get(url, Maloja), maps:get(key, Maloja)},
 	IgnoreScrobbles = sets:from_list(read_ignore_file(maps:get(ignore_file,
 								Maloja))),
-	ets:new(csongs, [set, named_table, {keypos, #csong.key}]),
+	ets:new(csongs, [set, private, named_table, {keypos, #csong.key}]),
 	case with_connection(MPD, fun read_song_database/1) of
 	ok ->
 		read_assign_scrobbles(MalojaConn, IgnoreScrobbles),
@@ -57,21 +57,8 @@ read_song_database(Conn) ->
 			{tagop, album,  eq, ""},
 			{tagop, title,  eq, ""}
 		]}},
-	Stats = erlmpd:count(Conn, Filter),
-	NumSongs = proplists:get_value(songs, Stats, 0),
-	?LOG_INFO("Found ~p songs in the database", [NumSongs]),
-	read_from_db(Conn, Filter, 0, NumSongs).
 
-read_from_db(_Conn, _Filter, _Start, 0) ->
-	ok;
-read_from_db(_Conn, _Filter, _Start, CountRemaining) when CountRemaining < 0 ->
-	{error, {assert_ge_0, CountRemaining}};
-read_from_db(Conn, Filter, Start, CountRemaining) ->
-	Proc = min(CountRemaining, 300), % 200..500 were the fastest batch sizes
-	End  = Start + Proc,
-	?LOG_INFO("read_from_db start=~p end=~p proc=~p progress=~f%",
-		[Start, End, Proc, Start * 100 / (Start + CountRemaining)]),
-	lists:foreach(fun(Entry) ->
+	maempsia_erlmpd:foreach_song(Conn, Filter, fun(Entry) ->
 		URI = proplists:get_value(file, Entry),
 		% Querying the stickers in-line is a little bit slower than
 		% batch processing but it greatly enhances the robustness
@@ -79,7 +66,8 @@ read_from_db(Conn, Filter, Start, CountRemaining) ->
 		SE = #csong{
 			key = to_key(Entry),
 			uri = URI,
-			count_sticker = read_playcount_sticker(URI, Conn),
+			count_sticker = maempsia_erlmpd:get_playcount(Conn,
+									URI),
 			count_scrobble = 0
 		},
 		case ets:insert_new(csongs, SE) of
@@ -93,8 +81,7 @@ read_from_db(Conn, Filter, Start, CountRemaining) ->
 					element(3, SE#csong.key),
 					SE#csong.uri, OE#csong.uri])
 		end
-	end, erlmpd:find_ex(Conn, Filter, [{window, {Start, End}}])),
-	read_from_db(Conn, Filter, End, CountRemaining - Proc).
+	end).
 
 % maenmpc_erlmpd.erl
 to_key(Entry) ->
@@ -125,13 +112,6 @@ normalize_always(Value) ->
 
 normalize_strong(Value) ->
 	normalize_always(re:replace(normalize_safe(Value), " \\(.*\\)$", "")).
-
-read_playcount_sticker(URI, Conn) ->
-	case erlmpd:sticker_get(Conn, "song", binary_to_list(URI),
-								"playCount") of
-	{error, _Any}   -> 0;
-	ProperPlaycount -> list_to_integer(ProperPlaycount)
-	end.
 
 read_assign_scrobbles(MalojaConn, IgnoreScrobbles) ->
 	{Processed, Skipped} = foldl_scrobbles(fun(Scrobble, Stats) ->
