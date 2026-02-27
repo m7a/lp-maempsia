@@ -26,7 +26,8 @@ generate(MPD, GRC, PLRC) ->
 	ets:delete(rsongs),
 	RV.
 
-insert_rated(_Conn, _URI, Rating) when Rating < 4 ->
+insert_rated(_Conn, _URI, Rating)
+			when (Rating /= ?RATING_UNRATED) and (Rating < 4) ->
 	true; % skip songs which are rated below 2 stars
 insert_rated(Conn, URI, Rating) ->
 	true = ets:insert_new(rsongs, #rsong{

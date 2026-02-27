@@ -1,6 +1,7 @@
 -module(maempsia_web).
 -author("Linux-Fan, Ma_Sys.ma <info@masysma.net>").
 -export([start/1, stop/0]).
+-include_lib("kernel/include/logger.hrl").
 
 -define(RATING_UNRATED, -1).
 -define(MAX_PL, 1000). % maximum playlist length to load
@@ -43,16 +44,18 @@
 % --------------------------------------------------------------------[ Code ]--
 start(Options) ->
 	MPD = proplists:get_value(mpd, Options),
-	ServerOptions = proplists:delete(mpd, Options),
+	{ok, RadioGenerators} = application:get_env(maempsia, playlist_gen),
+	{ok, ServerOptionsRaw} = application:get_env(maempsia, webserver),
+	RadioOptions = lists:sort(maps:keys(RadioGenerators)),
 	% TODO THERE IS ALSO A start_link version which I should probably prefer?
-	mochiweb_http:start([{name, ?MODULE}|[{loop, fun(Req) ->
-							loop(MPD, Req)
-						end}|ServerOptions]]).
+	mochiweb_http:start([{name, ?MODULE}|[ {loop, fun(Req) ->
+						loop(MPD, RadioOptions, Req)
+					end}|maps:to_list(ServerOptionsRaw)]]).
 
 stop() ->
 	mochiweb_http:stop(?MODULE).
 
-loop(MPD, Req) ->
+loop(MPD, RadioOptions, Req) ->
 	Method = mochiweb_request:get(method, Req),
 	case mochiweb_request:get(path, Req) of
 	% start
@@ -60,7 +63,7 @@ loop(MPD, Req) ->
 		redirect("index.xhtml", Req);
 	% pages
 	"/index.xhtml" when Method =:= 'GET'; Method =:= 'HEAD' ->
-		respond_tab_start(MPD, Req);
+		respond_tab_start(MPD, RadioOptions, Req);
 	"/playlist.xhtml" when Method =:= 'GET'; Method =:= 'HEAD' ->
 		respond_tab_playlist(MPD, Req);
 	"/songs.xhtml" when Method =:= 'GET'; Method =:= 'POST' ->
@@ -72,6 +75,8 @@ loop(MPD, Req) ->
 		process_add_song(MPD, Req, "songs.xhtml");
 	"/add_song_from_playlist.erl" when Method =:= 'POST' ->
 		process_add_song(MPD, Req, "playlist.xhtml");
+	"/modify_service.erl" when Method =:= 'POST' ->
+		process_modify_service(RadioOptions, Req);
 	_Other ->
 		mochiweb_request:respond({404, [{"Content-Type", "text/plain"}],
 					"not found\n"}, Req)
@@ -80,7 +85,8 @@ loop(MPD, Req) ->
 redirect(Target, Req) ->
 	mochiweb_request:respond({302, [{"Location", Target}], ""}, Req).
 
-respond_tab_start(MPD, Req) ->
+respond_tab_start(MPD, RadioOptions, Req) ->
+	{Gen, Schedule} = gen_server:call(maempsia_radio, get_schedule),
 	{ok, Conn} = maempsia_erlmpd:connect(MPD),
 	Status  = erlmpd:status(Conn),
 	CurID   = proplists:get_value(songid, Status, -1),
@@ -103,6 +109,22 @@ respond_tab_start(MPD, Req) ->
 			(proplists:get_value(duration, Status, <<"0.0">>))))],
 	% TODO ASTAT FORMS AND BUTTONS AND ONCE IT IS IN CONTINUE WITH THE SERVICES AND ONCE THEY ARE IN ADD THE TABLE ABOUT THE RADIO PLAYLIST HERE
 	respond_with_page([
+		<<"\t\t<form method=\"post\" action=\"modify_service.erl\">
+			<table>
+			<tr>
+				<td><label for=\"radio_generator\">Radio
+								</label></td>
+				<td>
+					<select name=\"radio_generator\">\n">>,
+		generate_radio_options(['---'|RadioOptions],
+							Gen, Schedule =/= []),
+		<<"\t\t\t\t\t</select>
+				</td>
+				<td><input type=\"submit\" name=\"radio\"
+							value=\"Set\"/></td>
+			</tr>
+			</table>
+			</form>\n">>,
 		?XHTML_PLAYLIST_TOP, PLRows, ?XHTML_PLAYLIST_BOT,
 		<<"\t\t<table border=\"1\">
 			<tr>
@@ -113,6 +135,7 @@ respond_tab_start(MPD, Req) ->
 				<td rowspan=\"2\">Vol+</td>
 			</tr>
 			<tr><td>">>, TimeInfo, <<"</td></tr>\n\t\t</table>\n">>
+		% TODO PRINT RADIO PLAYLIST FROM HERE!
 	], <<"index.xhtml">>, Req).
 
 respond_with_page(Text, OnPage, Req) ->
@@ -135,6 +158,19 @@ generate_navigation(OnPage) ->
 		{<<"Playlist">>, <<"playlist.xhtml">>},
 		{<<"Songs">>,    <<"songs.xhtml">>}
 	]], <<"</p>\n">>].
+
+generate_radio_options(RadioOptions, Gen, HasSchedule) ->
+	lists:map(fun(Ent) ->
+		Esc    = quote_xml(atom_to_binary(Ent)),
+		Suffix = [Esc, <<"</option>\n">>],
+		Prefix = [<<"\t\t\t\t\t\t<option value=\"">>, Esc, <<"\"">>],
+		case Ent of
+		Gen when HasSchedule ->
+			[Prefix|[<<" selected=\"selected\">">>|Suffix]];
+		_Other ->
+			[Prefix|[<<">">>|Suffix]]
+		end
+	end, RadioOptions).
 
 respond_tab_playlist(MPD, Req) ->
 	{ok, Conn} = maempsia_erlmpd:connect(MPD),
@@ -384,3 +420,18 @@ process_add_song(MPD, Req, ReturnTo) ->
 	end,
 	erlmpd:disconnect(Conn),
 	redirect(ReturnTo, Req).
+
+process_modify_service(RadioOptions, Req) ->
+	Form = mochiweb_util:parse_qs(mochiweb_request:recv_body(Req)),
+	% TODO x security maybe its better to convert RadioOptions to list of lists and then do membership request in favor of list_to_atom
+	GenToSet = list_to_atom(proplists:get_value("radio_generator", Form,
+									"---")),
+	case lists:member(GenToSet, RadioOptions) of
+	true ->
+		ok = gen_server:cast(maempsia_radio, {radio_start, GenToSet});
+	false when GenToSet =:= '---' ->
+		ok = gen_server:cast(maempsia_radio, radio_stop);
+	_Any ->
+		?LOG_WARNING("invalid form for radio_generator field")
+	end,
+	redirect("index.xhtml", Req).
