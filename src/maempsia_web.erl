@@ -29,16 +29,6 @@
 	</body>
 </html>
 ">>).
--define(XHTML_PLAYLIST_TOP, <<"\t\t<table border=\"1\">
-			<thead><tr>
-				<th>Action</th>
-				<th>Rated</th>
-				<th>Artist</th>
-				<th>Title</th>
-				<th>MM:ss</th>
-				<th>Action</th>
-			</tr></thead>
-			<tbody>\n">>).
 -define(XHTML_PLAYLIST_BOT, <<"\t\t\t</tbody>\n\t\t</table>">>).
 
 % --------------------------------------------------------------------[ Code ]--
@@ -75,6 +65,8 @@ loop(MPD, RadioOptions, Req) ->
 		process_add_song(MPD, Req, "songs.xhtml");
 	"/add_song_from_playlist.erl" when Method =:= 'POST' ->
 		process_add_song(MPD, Req, "playlist.xhtml");
+	"/add_song_from_start.erl" when Method =:= 'POST' ->
+		process_add_song(MPD, Req, "index.xhtml");
 	"/modify_service.erl" when Method =:= 'POST' ->
 		process_modify_service(RadioOptions, Req);
 	_Other ->
@@ -95,8 +87,11 @@ respond_tab_start(MPD, RadioOptions, Req) ->
 	PLength = proplists:get_value(playlistlength, Status, 0),
 	PLRows  = [generate_playlist_row(Conn, CurID, Song) || Song <-
 			erlmpd:playlistinfo(Conn, {CurPOS - 1, PLength})],
+	ScheduleInfo = [generate_schedule_row(Conn, URI) || URI <- Schedule],
 	erlmpd:disconnect(Conn),
 
+	RadioFormOpt = generate_radio_options(['---'|RadioOptions],
+							Gen, Schedule =/= []),
 	SongInfo = [format_artist(CurSong), <<", ">>, format_date(CurSong),
 					<<": ">>, format_title(CurSong)],
 	VolumeInfo = case proplists:get_value(volume, Status) of
@@ -107,7 +102,6 @@ respond_tab_start(MPD, RadioOptions, Req) ->
 	TimeInfo = [format_duration_time(floor(proplists:get_value(time, Status,
 			0))), <<"|">>, format_duration_time(ceil(binary_to_float
 			(proplists:get_value(duration, Status, <<"0.0">>))))],
-	% TODO ASTAT FORMS AND BUTTONS AND ONCE IT IS IN CONTINUE WITH THE SERVICES AND ONCE THEY ARE IN ADD THE TABLE ABOUT THE RADIO PLAYLIST HERE
 	respond_with_page([
 		<<"\t\t<form method=\"post\" action=\"modify_service.erl\">
 			<table>
@@ -116,8 +110,7 @@ respond_tab_start(MPD, RadioOptions, Req) ->
 								</label></td>
 				<td>
 					<select name=\"radio_generator\">\n">>,
-		generate_radio_options(['---'|RadioOptions],
-							Gen, Schedule =/= []),
+		RadioFormOpt,
 		<<"\t\t\t\t\t</select>
 				</td>
 				<td><input type=\"submit\" name=\"radio\"
@@ -125,7 +118,9 @@ respond_tab_start(MPD, RadioOptions, Req) ->
 			</tr>
 			</table>
 			</form>\n">>,
-		?XHTML_PLAYLIST_TOP, PLRows, ?XHTML_PLAYLIST_BOT,
+		generate_xhtml_playlist_top(<<"Action">>),
+		PLRows,
+		?XHTML_PLAYLIST_BOT,
 		<<"\t\t<table border=\"1\">
 			<tr>
 				<td rowspan=\"2\">Play/Pause</td>
@@ -134,9 +129,44 @@ respond_tab_start(MPD, RadioOptions, Req) ->
 				<td rowspan=\"2\">">>, VolumeInfo, <<"</td>
 				<td rowspan=\"2\">Vol+</td>
 			</tr>
-			<tr><td>">>, TimeInfo, <<"</td></tr>\n\t\t</table>\n">>
-		% TODO PRINT RADIO PLAYLIST FROM HERE!
+			<tr><td>">>, TimeInfo, <<"</td></tr>\n\t\t</table>\n">>,
+		generate_xhtml_playlist_top(<<"PC">>),
+		ScheduleInfo,
+		?XHTML_PLAYLIST_BOT
 	], <<"index.xhtml">>, Req).
+
+generate_playlist_row(Conn, Curs, Song) ->
+	URI = proplists:get_value(file, Song),
+	ID  = proplists:get_value('Id', Song),
+	{BO, BC} = case ID =:= Curs of
+			true  -> {<<"<strong>">>, <<"</strong>">>};
+			false -> {<<>>, <<>>}
+		end,
+	[<<"\t\t\t\t<tr>">>,
+	format_add_song_td(URI, <<"add_song_from_playlist.erl">>),
+	<<"<td>">>,      BO, format_rating(
+				maempsia_erlmpd:get_rating(Conn, URI)), BC,
+	<<"</td><td>">>, BO, format_artist(Song),                       BC,
+	<<"</td><td>">>, BO, format_title(Song),                        BC,
+	<<"</td><td>">>, BO, format_duration(Song),                     BC,
+	<<"</td><td><form method=\"post\" action=\"modify_playlist.erl\">
+	\t\t\t\t<input type=\"hidden\" name=\"id\" value=\"">>,
+						integer_to_binary(ID), <<"\"/>
+	\t\t\t\t<input type=\"submit\" name=\"act_remove\" value=\"-\"/>
+	\t\t\t\t<input type=\"submit\" name=\"act_play\" value=\"&#9205;\"/>
+	\t\t\t</form></td></tr>\n">>].
+
+generate_schedule_row(Conn, URI) ->
+	[Song] = erlmpd:find(Conn, {fileeq, URI}),
+	[<<"\t\t\t\t<tr>">>,
+	format_add_song_td(URI, <<"add_song_from_start.erl">>),
+	<<"<td>">>,      format_rating(maempsia_erlmpd:get_rating(Conn, URI)),
+	<<"</td><td>">>, format_artist(Song),
+	<<"</td><td>">>, format_title(Song),
+	<<"</td><td>">>, format_duration(Song),
+	<<"</td><td>">>,
+	integer_to_binary(maempsia_erlmpd:get_playcount(Conn, URI)),
+	"</td></tr>\n"].
 
 respond_with_page(Text, OnPage, Req) ->
 	mochiweb_request:respond({200, [
@@ -172,6 +202,18 @@ generate_radio_options(RadioOptions, Gen, HasSchedule) ->
 		end
 	end, RadioOptions).
 
+generate_xhtml_playlist_top(LastCol) ->
+	[<<"\t\t<table border=\"1\">
+			<thead><tr>
+				<th>Action</th>
+				<th>Rated</th>
+				<th>Artist</th>
+				<th>Title</th>
+				<th>MM:ss</th>
+				<th>">>, LastCol, <<"</th>
+			</tr></thead>
+			<tbody>\n">>].
+
 respond_tab_playlist(MPD, Req) ->
 	{ok, Conn} = maempsia_erlmpd:connect(MPD),
 	ok = erlmpd:tagtypes_clear(Conn),
@@ -192,29 +234,8 @@ respond_tab_playlist(MPD, Req) ->
 					Song <- erlmpd:playlistinfo(Conn)]
 		end,
 	erlmpd:disconnect(Conn),
-	respond_with_page([?XHTML_PLAYLIST_TOP, Rows, ?XHTML_PLAYLIST_BOT],
-						<<"playlist.xhtml">>, Req).
-
-generate_playlist_row(Conn, Curs, Song) ->
-	URI = proplists:get_value(file, Song),
-	ID  = proplists:get_value('Id', Song),
-	{BO, BC} = case ID =:= Curs of
-			true  -> {<<"<strong>">>, <<"</strong>">>};
-			false -> {<<>>, <<>>}
-		end,
-	[<<"\t\t\t\t<tr>">>,
-	format_add_song_td(URI, <<"add_song_from_playlist.erl">>),
-	<<"<td>">>,      BO, format_rating(
-				maempsia_erlmpd:get_rating(Conn, URI)), BC,
-	<<"</td><td>">>, BO, format_artist(Song),                       BC,
-	<<"</td><td>">>, BO, format_title(Song),                        BC,
-	<<"</td><td>">>, BO, format_duration(Song),                     BC,
-	<<"</td><td><form method=\"post\" action=\"modify_playlist.erl\">
-	\t\t\t\t<input type=\"hidden\" name=\"id\" value=\"">>,
-						integer_to_binary(ID), <<"\"/>
-	\t\t\t\t<input type=\"submit\" name=\"act_remove\" value=\"-\"/>
-	\t\t\t\t<input type=\"submit\" name=\"act_play\" value=\"&#9205;\"/>
-	\t\t\t</form></td></tr>\n">>].
+	respond_with_page([generate_xhtml_playlist_top(<<"Action">>), Rows,
+			?XHTML_PLAYLIST_BOT], <<"playlist.xhtml">>, Req).
 
 respond_tab_songs(MPD, Req) ->
 	{ok, Conn} = maempsia_erlmpd:connect(MPD),
