@@ -41,7 +41,7 @@ radio_start(Ctx, NewGen) ->
 
 % dequeue on recognize
 radio_enqueue(Ctx = #rr{mpd=MPD, schedule=[URI|T]}) ->
-	?LOG_DEBUG("radio enqueue ~s", [URI]),
+	?LOG_DEBUG("radio enqueue <~s>", [URI]),
 	{ok, Conn} = maempsia_erlmpd:connect(MPD),
 	ok = erlmpd:add(Conn, URI),
 	erlmpd:disconnect(Conn),
@@ -56,13 +56,13 @@ schedule_compute(#rr{mpd=MPD, conf_radio=Radio, conf_playlist_gen=PLG,
 							generator_type=Gen}) ->
 	Gen:generate(MPD, Radio, maps:get(Gen, PLG)). % dispatch!
 
-radio_stop(Ctx) when Ctx#rr.schedule =:= [] -> Ctx;
+radio_stop(Ctx = #rr{schedule=[]}) -> Ctx;
 radio_stop(Ctx) ->
 	?LOG_INFO("stop radio"),
 	Ctx#rr{schedule = []}.
 
-radio_check_song(Ctx, Song) when Song =:= undefined -> Ctx;
-radio_check_song(Ctx, _Song) when Ctx#rr.schedule == [] -> Ctx;
+radio_check_song(Ctx, undefined) -> Ctx;
+radio_check_song(Ctx = #rr{schedule=[]}, _Song) -> Ctx;
 radio_check_song(Ctx = #rr{schedule=[H|T]}, URI) ->
 	?LOG_DEBUG("radio check song have=~s search=~s", [URI, H]),
 	case URI of

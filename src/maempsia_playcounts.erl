@@ -85,33 +85,15 @@ read_song_database(Conn) ->
 
 % maenmpc_erlmpd.erl
 to_key(Entry) ->
-	{normalize_key(case proplists:get_value('AlbumArtist', Entry) of
-			undefined ->
-				proplists:get_value('Artist', Entry, <<>>);
-			<<"Various Artists">> ->
-				proplists:get_value('Artist', Entry, <<>>);
-			ValidAA ->
-				ValidAA
-			end),
+	{normalize_key(maempsia_erlmpd:get_artist(Entry)),
 	 normalize_strong(proplists:get_value('Album', Entry, <<>>)),
 	 normalize_key(proplists:get_value('Title', Entry, <<>>))}.
 
 % Expensive normalization option required due to the fact that scrobbling or
-% Maloja seem to mess with the supplied metadata.
-normalize_key(Value) ->
-	normalize_always(normalize_safe(Value)).
-
-normalize_safe(Value) ->
-	re:replace(string:replace(string:replace(string:replace(
-				lists:join(<<" ">>, string:lexemes(Value, " ")),
-			"[", "(", all), "]", ")", all), "’", "'", all),
-		" (\\(?feat(\\.|uring)?|vs\\.) .*$", "").
-
-normalize_always(Value) ->
-	unicode:characters_to_nfc_binary(string:casefold(Value)).
-
-normalize_strong(Value) ->
-	normalize_always(re:replace(normalize_safe(Value), " \\(.*\\)$", "")).
+% Maloja seem to mess with the supplied metadata. See also maempsia_scrobble.erl
+normalize_key(V)    -> normalize_always(maempsia_erlmpd:normalize_safe(V)).
+normalize_always(V) -> unicode:characters_to_nfc_binary(string:casefold(V)).
+normalize_strong(V) -> normalize_always(maempsia_erlmpd:normalize_strong(V)).
 
 read_assign_scrobbles(MalojaConn, IgnoreScrobbles) ->
 	{Processed, Skipped} = foldl_scrobbles(fun(Scrobble, Stats) ->

@@ -25,12 +25,10 @@ handle_call(_Other, _From, State) ->
 handle_cast(mpd_idle, State={Conn, InterestedReceivers}) ->
 	?LOG_DEBUG("idle receive..."),
 	IdleResult = erlmpd:idle_receive(Conn),
-	MessageProps = [{idle_result, IdleResult},
-			{status,      erlmpd:status(Conn)},
-			{currentsong, erlmpd:currentsong(Conn)}],
+	MessageProps = [{idle_result, IdleResult}|
+					maempsia_erlmpd:get_status_props(Conn)],
 	ok = erlmpd:idle_send(Conn, [playlist, player]),
-	?LOG_DEBUG("idle message = <~p> to <~w>",
-					[MessageProps, InterestedReceivers]),
+	?LOG_DEBUG("idle message to <~w>", [InterestedReceivers]),
 	lists:foreach(fun(Target) ->
 			ok = gen_server:cast(Target, {mpd_idle, MessageProps}) 
 		end, InterestedReceivers),

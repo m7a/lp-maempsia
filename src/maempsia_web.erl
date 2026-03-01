@@ -15,7 +15,7 @@
 	<head>
 		<meta name=\"viewport\"
 			content=\"width=device-width, initial-scale=1\"/>
-		<title>Ma_Sys.ma Erlang Music Player SideCar Automation</title>
+		<title>Ma_Sys.ma Erlang Music Player SIdecar Automation</title>
 		<style type=\"text/css\">
 			/* <![CDATA[ */
 			body { font-family: \"PT Mono\", monospace }
@@ -23,7 +23,7 @@
 		</style>
 	</head>
 	<body>
-		<h1>Ma_Sys.ma Erlang Music Player SideCar Automation</h1>
+		<h1>Ma_Sys.ma Erlang Music Player SIdecar Automation</h1>
 ">>).
 -define(XHTML_TPL_BOT, <<"
 	</body>
@@ -79,6 +79,7 @@ redirect(Target, Req) ->
 
 respond_tab_start(MPD, RadioOptions, Req) ->
 	{Gen, Schedule} = gen_server:call(maempsia_radio, get_schedule),
+	HasPodcast = gen_server:call(maempsia_podcast, is_active),
 	{ok, Conn} = maempsia_erlmpd:connect(MPD),
 	Status  = erlmpd:status(Conn),
 	CurID   = proplists:get_value(songid, Status, -1),
@@ -116,6 +117,13 @@ respond_tab_start(MPD, RadioOptions, Req) ->
 				<td><input type=\"submit\" name=\"radio\"
 							value=\"Set\"/></td>
 			</tr>
+			<tr>\n">>,
+				generate_podcast_form_cell(HasPodcast,
+						"podcast_stop", "Stop"),
+				<<"<td>Podcast</td>\n">>,
+				generate_podcast_form_cell(not HasPodcast,
+						"podcast_start", "Start"),
+			<<"\t\t\t\t\t</tr>
 			</table>
 			</form>\n">>,
 		generate_xhtml_playlist_top(<<"Action">>),
@@ -167,6 +175,12 @@ generate_schedule_row(Conn, URI) ->
 	<<"</td><td>">>,
 	integer_to_binary(maempsia_erlmpd:get_playcount(Conn, URI)),
 	"</td></tr>\n"].
+
+generate_podcast_form_cell(Enable, _Name, _Label) when not Enable ->
+	<<"\t\t\t\t\t\t<td></td>\n">>;
+generate_podcast_form_cell(_Enable, Name, Label) ->
+	[<<"\t\t\t\t\t\t<td><input type=\"submit\" name=\"">>, Name,
+				<<"\" value=\"">>, Label, <<"\"/></td>\n">>].
 
 respond_with_page(Text, OnPage, Req) ->
 	mochiweb_request:respond({200, [
@@ -447,6 +461,7 @@ process_modify_service(RadioOptions, Req) ->
 	% TODO x security maybe its better to convert RadioOptions to list of lists and then do membership request in favor of list_to_atom
 	GenToSet = list_to_atom(proplists:get_value("radio_generator", Form,
 									"---")),
+	?LOG_DEBUG("process_modify_server GenToSet=<~w>", [GenToSet]),
 	case lists:member(GenToSet, RadioOptions) of
 	true ->
 		ok = gen_server:cast(maempsia_radio, {radio_start, GenToSet});
@@ -454,5 +469,14 @@ process_modify_service(RadioOptions, Req) ->
 		ok = gen_server:cast(maempsia_radio, radio_stop);
 	_Any ->
 		?LOG_WARNING("invalid form for radio_generator field")
+	end,
+	case proplists:get_value("podcast_start", Form) of
+	"Start" ->
+		ok = gen_server:cast(maempsia_podcast, podcast_start);
+	_Other ->
+		case proplists:get_value("podcast_stop", Form) of
+		"Stop" -> ok = gen_server:cast(maempsia_podcast, podcast_stop);
+		_Other2 -> ok
+		end
 	end,
 	redirect("index.xhtml", Req).

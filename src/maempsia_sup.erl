@@ -13,10 +13,17 @@ init([CLIParams]) ->
 		#{id => maempsia_radio, start => {gen_server, start_link,
 				[{local, maempsia_radio}, maempsia_radio,
 				[CLIParams], []]}},
+		#{id => maempsia_podcast, start => {gen_server, start_link,
+				[{local, maempsia_podcast}, maempsia_podcast,
+				[CLIParams], []]}},
+		#{id => maempsia_scrobble, start => {gen_server, start_link,
+				[{local, maempsia_scrobble}, maempsia_scrobble,
+				[CLIParams], []]}},
 		#{id => maempsia_idle_listener, start => {gen_server,
 				start_link, [{local, maempsia_idle_listener},
 				maempsia_idle_listener, [
 					proplists:get_value(mpd, CLIParams),
-					[maempsia_radio]
+					[maempsia_radio, maempsia_podcast,
+					maempsia_scrobble]
 				], []]}}
 	]}}.

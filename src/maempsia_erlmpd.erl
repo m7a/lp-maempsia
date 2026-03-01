@@ -1,7 +1,8 @@
 -module(maempsia_erlmpd).
--export([connect/1, foreach_song/3, get_playcount/2, get_rating/2]).
+-export([connect/1, foreach_song/3, get_playcount/2, get_rating/2,
+	get_status_props/1, get_artist/1,
+	normalize_safe/1, normalize_strong/1]).
 -include_lib("kernel/include/logger.hrl").
-
 -define(RATING_UNRATED, -1).
 
 connect(MPD) ->
@@ -47,3 +48,25 @@ get_rating(Conn, URI) ->
 	{error, _Any} -> ?RATING_UNRATED;
 	ProperRating  -> list_to_integer(ProperRating)
 	end.
+
+get_status_props(Conn) ->
+	[{status, erlmpd:status(Conn)},
+	{currentsong, erlmpd:currentsong(Conn)}].
+
+get_artist(SongInfo) ->
+	case proplists:get_value('AlbumArtist', SongInfo) of
+	undefined             -> proplists:get_value('Artist', SongInfo, <<>>);
+	<<"Various Artists">> -> proplists:get_value('Artist', SongInfo, <<>>);
+	ValidAA               -> ValidAA
+	end.
+
+% not strictly-speaking erlmpd related but doesn't make sense to create an own
+% file for right now...
+normalize_safe(Value) ->
+	re:replace(string:replace(string:replace(string:replace(
+				lists:join(<<" ">>, string:lexemes(Value, " ")),
+			"[", "(", all), "]", ")", all), "’", "'", all),
+		" (\\(?feat(\\.|uring)?|vs\\.) .*$", "").
+
+normalize_strong(Value) ->
+	re:replace(normalize_safe(Value), " \\(.*\\)$", "").
