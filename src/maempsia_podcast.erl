@@ -128,7 +128,7 @@ play(File, Ctx = #rp{mpd=MPD, config=Config}) ->
 			{ok, _Bytes} = file:copy(File, TargetFS)
 		end
 	end,
-	TargetMPD = proplists:get_value(target_mpd, Config),
+	TargetMPD = maps:get(target_mpd, Config),
 	{ok, Conn} = maempsia_erlmpd:connect(MPD),
 	case erlmpd:addid_relative(Conn, TargetMPD, 0) of
 	{error, Err} -> ?LOG_ERROR("podcast enqueue error ~p", [Err]);
