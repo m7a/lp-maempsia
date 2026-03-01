@@ -77,8 +77,7 @@ scrobble(Ctx = #sc{song=URI}, Conn) ->
 			time   => os:system_time(second)
 		}),
 		?LOG_INFO("scrobble send ~s/~s/~s", [Artist, Album, Title]),
-		% TODO CSTAT IMPLEMENT THIS API sticker_inc/sticker_dec
-		% ok = erlmpd:sticker_inc(Conn, "song", URI, "playCount", 1),
+		ok = erlmpd:sticker_inc(Conn, "song", URI, "playCount", 1),
 		erlmpd:disconnect(Conn),
 		scrobble_send(Ctx, Payload)
 	end.

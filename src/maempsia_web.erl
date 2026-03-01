@@ -92,7 +92,7 @@ respond_tab_start(MPD, RadioOptions, Req) ->
 	CurID        = proplists:get_value(songid, Status, -1),
 	CurSong      = erlmpd:currentsong(Conn),
 	PLength      = proplists:get_value(playlistlength, Status, 0),
-	CurPOS       = max(1, proplists:get_value(song, Status, PLength - 5)),
+	CurPOS       = max(1, proplists:get_value(song, Status, PLength - 10)),
 	PLRows       = [generate_playlist_row(Conn, CurID, Song, <<"start">>)
 					|| Song <- erlmpd:playlistinfo(Conn,
 					{CurPOS - 1, PLength})],
@@ -525,11 +525,10 @@ process_control_player(MPD, Req) ->
 	Form = mochiweb_util:parse_qs(mochiweb_request:recv_body(Req)),
 	Tasks = conditional_action(Form, "toggle_play_pause",
 							fun toggle_pause/1) ++
-		% TODO WRONG API need erlmpd:volume (change) API!
 		conditional_action(Form, "volume_up",
-				fun(Conn) -> erlmpd:setvol(Conn, +5) end) ++
+				fun(Conn) -> erlmpd:volume(Conn, +5) end) ++
 		conditional_action(Form, "volume_down",
-				fun(Conn) -> erlmpd:setvol(Conn, -5) end),
+				fun(Conn) -> erlmpd:volume(Conn, -5) end),
 	case Tasks of
 	[] ->
 		ok;
