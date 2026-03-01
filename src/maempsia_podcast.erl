@@ -113,19 +113,15 @@ play(File, Ctx = #rp{mpd=MPD, config=Config}) ->
 	case lists:suffix(".flac", TargetFS) of
 	true ->
 		TempFN = tmpnam(".flac"),
-		ok = file:copy(File, TempFN),
-		ok = run_process_require_success(["loudgain", "-r", "-k",
-						"-s", "e", TempFN], Ctx),
-		ok = file:rename(TempFN, TargetFS);
+		copy_then_run(Ctx, File, TempFN, TargetFS,
+				["loudgain", "-r", "-k", "-s", "e", TempFN]);
 	false ->
 		case lists:suffix(".mp3", TargetFS) of
 		true ->
 			TempFN = tmpnam(".mp3"),
-			ok = file:copy(File, TempFN),
-			ok = run_process_require_success(["loudgain", "-I3",
-						"-S", "-L", "-r", "-k",
-						"-s", "e", TempFN], Ctx),
-			ok = file:rename(TempFN, TargetFS);
+			copy_then_run(Ctx, File, TempFN, TargetFS,
+					["loudgain", "-I3", "-S", "-L", "-r",
+					"-k", "-s", "e", TempFN]);
 		false ->
 			?LOG_WARNING("podcast no loudgain on unknown type: ~s",
 								[TargetFS]),
@@ -146,6 +142,13 @@ play(File, Ctx = #rp{mpd=MPD, config=Config}) ->
 tmpnam(Suffix) ->
 	filename:join(os:getenv("TMP", "/tmp"), io_lib:format("podcast_~w~s",
 					[erlang:unique_integer(), Suffix])).
+
+copy_then_run(Ctx = #rp{config=Config}, File, TempFN, TargetFS, CMD) ->
+	TargetFS = maps:get(target_fs, Config),
+	{ok, _Bytes} = file:copy(File, TempFN),
+	ok = run_process_require_success(CMD, Ctx),
+	{ok, _Bytes2} = file:copy(TempFN, TargetFS),
+	ok = file:delete(TempFN).
 
 run_process_require_success(Cmd, #rp{config=Config}) ->
 	?LOG_INFO("podcast run command ~p", [Cmd]),

@@ -69,6 +69,12 @@ loop(MPD, RadioOptions, Req) ->
 		process_add_song(MPD, Req, "index.xhtml");
 	"/modify_service.erl" when Method =:= 'POST' ->
 		process_modify_service(RadioOptions, Req);
+	"/modify_playlist_from_start.erl" when Method =:= 'POST' ->
+		process_modify_playlist(MPD, Req, "index.xhtml");
+	"/modify_playlist_from_playlist.erl" when Method =:= 'POST' ->
+		process_modify_playlist(MPD, Req, "playlist.xhtml");
+	"/control_player.erl" when Method =:= 'POST' ->
+		process_control_player(MPD, Req);
 	_Other ->
 		mochiweb_request:respond({404, [{"Content-Type", "text/plain"}],
 					"not found\n"}, Req)
@@ -78,21 +84,23 @@ redirect(Target, Req) ->
 	mochiweb_request:respond({302, [{"Location", Target}], ""}, Req).
 
 respond_tab_start(MPD, RadioOptions, Req) ->
-	{Gen, Schedule} = gen_server:call(maempsia_radio, get_schedule),
-	HasPodcast = gen_server:call(maempsia_podcast, is_active),
-	{ok, Conn} = maempsia_erlmpd:connect(MPD),
-	Status  = erlmpd:status(Conn),
-	CurID   = proplists:get_value(songid, Status, -1),
-	CurPOS  = max(1, proplists:get_value(song, Status, 1)),
-	CurSong = erlmpd:currentsong(Conn),
-	PLength = proplists:get_value(playlistlength, Status, 0),
-	PLRows  = [generate_playlist_row(Conn, CurID, Song) || Song <-
-			erlmpd:playlistinfo(Conn, {CurPOS - 1, PLength})],
-	ScheduleInfo = [generate_schedule_row(Conn, URI) || URI <- Schedule],
+	{Gen, Sched} = gen_server:call(maempsia_radio, get_schedule),
+	HasPodcast   = gen_server:call(maempsia_podcast, is_active),
+	IsScrobbling = gen_server:call(maempsia_scrobble, is_active),
+	{ok, Conn}   = maempsia_erlmpd:connect(MPD),
+	Status       = erlmpd:status(Conn),
+	CurID        = proplists:get_value(songid, Status, -1),
+	CurSong      = erlmpd:currentsong(Conn),
+	PLength      = proplists:get_value(playlistlength, Status, 0),
+	CurPOS       = max(1, proplists:get_value(song, Status, PLength - 5)),
+	PLRows       = [generate_playlist_row(Conn, CurID, Song, <<"start">>)
+					|| Song <- erlmpd:playlistinfo(Conn,
+					{CurPOS - 1, PLength})],
+	ScheduleInfo = [generate_schedule_row(Conn, URI) || URI <- Sched],
 	erlmpd:disconnect(Conn),
 
-	RadioFormOpt = generate_radio_options(['---'|RadioOptions],
-							Gen, Schedule =/= []),
+	RadioFormOpt = generate_radio_options(['---'|RadioOptions], Gen,
+								Sched =/= []),
 	SongInfo = [format_artist(CurSong), <<", ">>, format_date(CurSong),
 					<<": ">>, format_title(CurSong)],
 	VolumeInfo = case proplists:get_value(volume, Status) of
@@ -124,26 +132,40 @@ respond_tab_start(MPD, RadioOptions, Req) ->
 				generate_podcast_form_cell(not HasPodcast,
 						"podcast_start", "Start"),
 			<<"\t\t\t\t\t</tr>
+			<tr><td rowspan=\"3\">scrobbling: ">>,
+			case IsScrobbling of
+			true  -> <<"active">>;
+			false -> <<"disabled">>
+			end,
+			<<"</td></tr>
 			</table>
 			</form>\n">>,
 		generate_xhtml_playlist_top(<<"Action">>),
 		PLRows,
 		?XHTML_PLAYLIST_BOT,
-		<<"\t\t<table border=\"1\">
+		<<"\t\t<form method=\"post\" action=\"control_player.erl\">
+			<table border=\"1\">
 			<tr>
-				<td rowspan=\"2\">Play/Pause</td>
+				<td rowspan=\"2\"><input type=\"submit\"
+					name=\"toggle_play_pause\"
+					value=\"Play/Pause\"/></td>
 				<td>">>, SongInfo, <<"</td>
-				<td rowspan=\"2\">Vol-</td>
+				<td rowspan=\"2\"><input type=\"submit\"
+					name=\"volume_down\"
+					value=\"Vol-\"/></td>
 				<td rowspan=\"2\">">>, VolumeInfo, <<"</td>
-				<td rowspan=\"2\">Vol+</td>
+				<td rowspan=\"2\"><input type=\"submit\"
+					name=\"volume_up\"
+					value=\"Vol+\"/></td>
 			</tr>
-			<tr><td>">>, TimeInfo, <<"</td></tr>\n\t\t</table>\n">>,
+			<tr><td>">>, TimeInfo, <<"</td></tr>\n\t\t</table>
+			</form>\n">>,
 		generate_xhtml_playlist_top(<<"PC">>),
 		ScheduleInfo,
 		?XHTML_PLAYLIST_BOT
 	], <<"index.xhtml">>, Req).
 
-generate_playlist_row(Conn, Curs, Song) ->
+generate_playlist_row(Conn, Curs, Song, From) ->
 	URI = proplists:get_value(file, Song),
 	ID  = proplists:get_value('Id', Song),
 	{BO, BC} = case ID =:= Curs of
@@ -151,13 +173,14 @@ generate_playlist_row(Conn, Curs, Song) ->
 			false -> {<<>>, <<>>}
 		end,
 	[<<"\t\t\t\t<tr>">>,
-	format_add_song_td(URI, <<"add_song_from_playlist.erl">>),
+	format_add_song_td(URI, [<<"add_song_from_">>, From, <<".erl">>]),
 	<<"<td>">>,      BO, format_rating(
 				maempsia_erlmpd:get_rating(Conn, URI)), BC,
 	<<"</td><td>">>, BO, format_artist(Song),                       BC,
 	<<"</td><td>">>, BO, format_title(Song),                        BC,
 	<<"</td><td>">>, BO, format_duration(Song),                     BC,
-	<<"</td><td><form method=\"post\" action=\"modify_playlist.erl\">
+	<<"</td><td><form method=\"post\" action=\"modify_playlist_from_">>,
+							From, <<".erl\">
 	\t\t\t\t<input type=\"hidden\" name=\"id\" value=\"">>,
 						integer_to_binary(ID), <<"\"/>
 	\t\t\t\t<input type=\"submit\" name=\"act_remove\" value=\"-\"/>
@@ -241,11 +264,13 @@ respond_tab_playlist(MPD, Req) ->
 					integer_to_binary(PLength - 600),
 					<<" playlist entries.</em></td>">>,
 					<<"<td>...</td><td>...</td></tr>\n">>]
-				|[generate_playlist_row(Conn, Curs, Song)
+				|[generate_playlist_row(Conn, Curs, Song,
+					<<"playlist">>)
 					|| Song <- erlmpd:playlistinfo(Conn,
 					{PLength - ?MAX_PL + 1, PLength})]];
-		false -> [generate_playlist_row(Conn, Curs, Song) ||
-					Song <- erlmpd:playlistinfo(Conn)]
+		false -> [generate_playlist_row(Conn, Curs, Song,
+								<<"playlist">>)
+					|| Song <- erlmpd:playlistinfo(Conn)]
 		end,
 	erlmpd:disconnect(Conn),
 	respond_with_page([generate_xhtml_playlist_top(<<"Action">>), Rows,
@@ -480,3 +505,53 @@ process_modify_service(RadioOptions, Req) ->
 		end
 	end,
 	redirect("index.xhtml", Req).
+
+process_modify_playlist(MPD, Req, ReturnTo) ->
+	Form = mochiweb_util:parse_qs(mochiweb_request:recv_body(Req)),
+	ID = list_to_integer(proplists:get_value("id", Form, 1)),
+	{ok, Conn} = maempsia_erlmpd:connect(MPD),
+	case proplists:get_value("act_remove", Form) of
+	undefined ->
+		case proplists:get_value("act_play", Form) of
+		undefined -> ?LOG_WARNING("no action for ~p", [Form]);
+		_ActPlay  -> ok = erlmpd:playid(Conn, ID)
+		end;
+	_ActRemove ->
+		ok = erlmpd:deleteid(Conn, ID)
+	end,
+	redirect(ReturnTo, Req).
+
+process_control_player(MPD, Req) ->
+	Form = mochiweb_util:parse_qs(mochiweb_request:recv_body(Req)),
+	Tasks = conditional_action(Form, "toggle_play_pause",
+							fun toggle_pause/1) ++
+		% TODO WRONG API need erlmpd:volume (change) API!
+		conditional_action(Form, "volume_up",
+				fun(Conn) -> erlmpd:setvol(Conn, +5) end) ++
+		conditional_action(Form, "volume_down",
+				fun(Conn) -> erlmpd:setvol(Conn, -5) end),
+	case Tasks of
+	[] ->
+		ok;
+	_NonEmpty ->
+		{ok, Conn} = maempsia_erlmpd:connect(MPD),
+		lists:foreach(fun(Op) -> Op(Conn) end, Tasks),
+		erlmpd:disconnect(Conn)
+	end,
+	redirect("index.xhtml", Req).
+
+% maenmpc_ui.erl toggle_pause
+toggle_pause(Conn) ->
+	Status = erlmpd:status(Conn),
+	case proplists:get_value(state, Status) of
+	undefined -> ok; % Cannot do anyhting in undefined state
+	play      -> erlmpd:pause(Conn, true);
+	pause     -> erlmpd:pause(Conn, false);
+	stop      -> erlmpd:play(Conn)
+	end.
+
+conditional_action(Form, Field, Op) ->
+	case proplists:get_value(Field, Form) of
+	undefined -> [];
+	_EntrySet -> [Op]
+	end.
