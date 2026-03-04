@@ -1,0 +1,3 @@
+#!/bin/sh -eu
+# Wrapper for MAEMPSIA (c) 2026 Ma_Sys.ma <info@masysma.net>
+exec /usr/share/mdvl-maempsia/maempsia/bin/maempsia foreground "$@"
