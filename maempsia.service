@@ -1,0 +1,9 @@
+[Unit]
+Description=Ma_Sys.ma Erlang Music Player SIdecar Automation Instance
+
+[Service]
+ExecStart=
+ExecStart=/usr/bin/maempsia
+
+[Install]
+WantedBy=default.target

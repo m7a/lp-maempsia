@@ -15,6 +15,7 @@
 	<head>
 		<meta name=\"viewport\"
 			content=\"width=device-width, initial-scale=1\"/>
+		<meta name=\"color-scheme\" content=\"light dark\"/>
 		<title>Ma_Sys.ma Erlang Music Player SIdecar Automation</title>
 		<style type=\"text/css\">
 			/* <![CDATA[ */
@@ -34,18 +35,20 @@
 % --------------------------------------------------------------------[ Code ]--
 start(Options) ->
 	MPD = proplists:get_value(mpd, Options),
-	{ok, RadioGenerators} = application:get_env(maempsia, playlist_gen),
-	{ok, ServerOptionsRaw} = application:get_env(maempsia, webserver),
+	{ok, RadioGenerators}     = application:get_env(maempsia, playlist_gen),
+	{ok, ServerOptionsRaw}    = application:get_env(maempsia, webserver),
+	{ok, WebinterfaceOptions} = application:get_env(maempsia, webinterface),
 	RadioOptions = lists:sort(maps:keys(RadioGenerators)),
+	Files        = lists:sort(maps:get(files, WebinterfaceOptions)),
 	% TODO THERE IS ALSO A start_link version which I should probably prefer?
 	mochiweb_http:start([{name, ?MODULE}|[ {loop, fun(Req) ->
-						loop(MPD, RadioOptions, Req)
-					end}|maps:to_list(ServerOptionsRaw)]]).
+					loop(MPD, RadioOptions, Files, Req)
+				end}|maps:to_list(ServerOptionsRaw)]]).
 
 stop() ->
 	mochiweb_http:stop(?MODULE).
 
-loop(MPD, RadioOptions, Req) ->
+loop(MPD, RadioOptions, Files, Req) ->
 	Method = mochiweb_request:get(method, Req),
 	case mochiweb_request:get(path, Req) of
 	% start
@@ -58,6 +61,8 @@ loop(MPD, RadioOptions, Req) ->
 		respond_tab_playlist(MPD, Req);
 	"/songs.xhtml" when Method =:= 'GET'; Method =:= 'POST' ->
 		respond_tab_songs(MPD, Req);
+	"/files.xhtml" when Method =:= 'GET' ->
+		respond_tab_files(Files, Req);
 	% control
 	"/add_album.erl" when Method =:= 'POST' ->
 		process_add_album(MPD, Req);
@@ -223,7 +228,8 @@ generate_navigation(OnPage) ->
 	|| Page <- [
 		{<<"Start">>,    <<"index.xhtml">>},
 		{<<"Playlist">>, <<"playlist.xhtml">>},
-		{<<"Songs">>,    <<"songs.xhtml">>}
+		{<<"Songs">>,    <<"songs.xhtml">>},
+		{<<"Files">>,    <<"files.xhtml">>}
 	]], <<"</p>\n">>].
 
 generate_radio_options(RadioOptions, Gen, HasSchedule) ->
@@ -415,6 +421,15 @@ cmp_prop_lex(ListA, ListB, [Tag|Rem]) ->
 	ValA =< ValB  -> true;
 	true          -> false
 	end.
+
+respond_tab_files(Files, Req) ->
+	respond_with_page([format_file(F) || F <- Files],
+							<<"files.xhtml">>, Req).
+
+format_file(File) ->
+	{ok, ContentsRaw} = file:read_file(File),
+	[<<"\t\t<h2>">>, File, <<"</h2>\n\t\t<pre>">>, quote_xml(ContentsRaw),
+	<<"</pre>\n\t\t<hr/>\n">>].
 
 process_add_album(MPD, Req) ->
 	Form = mochiweb_util:parse_qs(mochiweb_request:recv_body(Req)),

@@ -6,7 +6,7 @@
 <property name="mdpc.name"      value="mdvl-maempsia"/>
 <property name="mdpc.section"   value="sound"/>
 <property name="mdpc.descrs"
-		>Ma_Sys.ma Erlang Music Player SideCar Automation</property>
+		>Ma_Sys.ma Erlang Music Player SIdecar Automation</property>
 <property name="mdpc.arch"      value="all"/>
 <property name="mdpc.depends"
 	>erlang-base, erlang-jiffy, erlang-mochiweb, mdvl-erlmpd</property>
@@ -29,6 +29,7 @@ src /usr/share/mdvl-maempsia/maempsia/lib/maempsia-0.0.1
 config/sys.config /usr/share/mdvl-maempsia/maempsia/releases/0.0.1
 config/vm.args /usr/share/mdvl-maempsia/maempsia/releases/0.0.1
 maempsia /usr/bin
+maempsia.service /usr/lib/systemd/user
 </property>
 
 <!-- PART OF TPL HERE FOR USE IN BUILD -->
