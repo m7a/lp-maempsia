@@ -30,7 +30,8 @@ run(MPD, Maloja) ->
 	% is the phone where this playcounts step is indeed intended to be
 	% skipped as the phone operates on a copy of the database with the
 	% playCount sticker readily populated.
-	ets:delete(csongs).
+	ets:delete(csongs),
+	ok.
 
 read_ignore_file(undefined) -> [];
 read_ignore_file(PossibleFile) ->

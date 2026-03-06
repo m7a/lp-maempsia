@@ -6,15 +6,20 @@
 -record(rr, {mpd, conf_radio, conf_playlist_gen, generator_type, schedule}).
 
 init([Options]) ->
-	{ok, ConfRadio}       = application:get_env(maempsia, radio),
-	{ok, ConfPlayListGen} = application:get_env(maempsia, playlist_gen),
-	{ok, #rr{
+	{ok, ConfRadio}           = application:get_env(maempsia, radio),
+	{ok, ConfPlayListGen}     = application:get_env(maempsia, playlist_gen),
+	DefaultCtx = #rr{
 		mpd               = proplists:get_value(mpd, Options),
 		conf_radio        = ConfRadio,
 		conf_playlist_gen = ConfPlayListGen,
 		generator_type    = maempsia_pl_radio,
 		schedule          = []
-	}}.
+	},
+	{ok, case proplists:get_value(radio, Options) of
+	undefined   -> DefaultCtx;
+	[[]]        -> radio_start(DefaultCtx, DefaultCtx#rr.generator_type);
+	[Generator] -> radio_start(DefaultCtx, list_to_atom(Generator))
+	end}.
 
 handle_call(get_schedule, _From,
 			Ctx = #rr{generator_type=Type, schedule=Sched}) ->
