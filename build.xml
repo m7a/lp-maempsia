@@ -71,6 +71,8 @@ maempsia.service /usr/lib/systemd/user
 		includeemptydirs="true" removeNotFollowedSymlinks="true"/>
 </target>
 
+<target name="autoci" depends="autopackage"/>
+
 <!-- TPL IMPORT (PARTIALLY GIVEN ABOVE) -->
 <property name="masysma.internal.loadpath" value="${masysma.internal.includepath}/co-build/ant-build-template.xml"/>
 <condition property="masysma.internal.load" value="file://${masysma.internal.loadpath}" else="https://raw.githubusercontent.com/m7a/co-build/master/ant-build-template.xml"><resourceexists><file file="${masysma.internal.loadpath}"/></resourceexists></condition>
