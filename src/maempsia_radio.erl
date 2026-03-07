@@ -1,6 +1,7 @@
 -module(maempsia_radio).
 -behavior(gen_server).
--export([init/1, handle_call/3, handle_cast/2, handle_info/2, code_change/3]).
+-export([init/1, get_default_generator/0, handle_call/3, handle_cast/2,
+	handle_info/2, code_change/3]).
 -include_lib("kernel/include/logger.hrl").
 
 -record(rr, {mpd, conf_radio, conf_playlist_gen, generator_type, schedule}).
@@ -12,7 +13,7 @@ init([Options]) ->
 		mpd               = proplists:get_value(mpd, Options),
 		conf_radio        = ConfRadio,
 		conf_playlist_gen = ConfPlayListGen,
-		generator_type    = maempsia_pl_radio,
+		generator_type    = get_default_generator(),
 		schedule          = []
 	},
 	{ok, case proplists:get_value(radio, Options) of
@@ -20,6 +21,9 @@ init([Options]) ->
 	[[]]        -> radio_start(DefaultCtx, DefaultCtx#rr.generator_type);
 	[Generator] -> radio_start(DefaultCtx, list_to_atom(Generator))
 	end}.
+
+get_default_generator() ->
+	maempsia_pl_radio.
 
 handle_call(get_schedule, _From,
 			Ctx = #rr{generator_type=Type, schedule=Sched}) ->

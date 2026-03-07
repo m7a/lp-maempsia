@@ -12,7 +12,11 @@ run(MPD, Maloja) ->
 		_NoSyncPCNoninteractively ->
 			case init:get_argument('import-scrobbles') of
 			{ok, [[JSON]]} -> import_scrobbles(Maloja, JSON);
-			_RunServer     -> run_server(MPD, Maloja)
+			_NoImport ->
+				case init:get_argument('generate-schedule') of
+				{ok, [[M3U]]} -> generate_schedule(MPD, M3U);
+				_RunServer    -> run_server(MPD, Maloja)
+				end
 			end
 		end
 	end.
@@ -22,8 +26,9 @@ usage() ->
 "USAGE maempsia [-skip-sync] [-radio [GEN]] -- run regularly~n" ++
 "USAGE maempsia -help                       -- this page~n" ++
 "USAGE maempsia -sync-playcounts            -- sync playcounts then exit~n" ++
-"USAGE maempsia -import-scrobbles JSON      -- import scrobbles from file~n~n"
-% TODO x -generate-schedule M3U [GEN] -~> maempsia_radio:schedule_compute...
+"USAGE maempsia -import-scrobbles JSON      -- import scrobbles from file~n" ++
+"USAGE maempsia -generate-schedule M3U [-generator GEN] [-length COUNT]~n" ++
+"                                           -- generate playlist schedule~n~n"
 ++
 "-skip-sync         Don't synchronize playCount sticker from Maloja on startup"
 ++ "~n" ++
@@ -54,6 +59,21 @@ import_scrobbles(Maloja, JSON) ->
 		end
 	end, Objects),
 	ok.
+
+generate_schedule(MPD, M3U) ->
+	Gen = case init:get_argument('generator') of
+			{ok, [[GenRaw]]} -> list_to_atom(GenRaw);
+			_Other -> maempsia_radio:get_default_generator()
+		end,
+	{ok, ConfRadioRaw} = application:get_env(maempsia, radio),
+	ConfRadio = case init:get_argument('length') of
+			{ok, [[CountR]]} -> maps:put(schedule_len,
+					list_to_integer(CountR), ConfRadioRaw);
+			_Other2 -> ConfRadioRaw
+		end,
+	{ok, ConfPlayListGen} = application:get_env(maempsia, playlist_gen),
+	Playlist = Gen:generate(MPD, ConfRadio, maps:get(Gen, ConfPlayListGen)),
+	file:write_file(M3U, [[URI, <<"\n">>] || URI <- Playlist]).
 
 run_server(MPD, Maloja) ->
 	case init:get_argument('skip-sync') of
