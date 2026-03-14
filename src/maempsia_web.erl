@@ -4,6 +4,7 @@
 -include_lib("kernel/include/logger.hrl").
 
 -define(RATING_UNRATED, -1).
+-define(RATING_NOTPOSS, -2).
 -define(MAX_PL, 1000). % maximum playlist length to load
 
 % ---------------------------------------------------------------[ Templates ]--
@@ -19,7 +20,17 @@
 		<title>Ma_Sys.ma Erlang Music Player SIdecar Automation</title>
 		<style type=\"text/css\">
 			/* <![CDATA[ */
-			body { font-family: \"PT Mono\", monospace }
+			body {
+				font-family: \"PT Mono\", monospace;
+			}
+			.arathigh {
+				color: AccentColorText;
+				background-color: AccentColor;
+			}
+			.aratmax {
+				color: MarkText;
+				background-color: Mark;
+			}
 			/* ]]> */
 		</style>
 	</head>
@@ -31,6 +42,18 @@
 </html>
 ">>).
 -define(XHTML_PLAYLIST_BOT, <<"\t\t\t</tbody>\n\t\t</table>">>).
+-define(XHTML_SONGS_TBL_BEGIN, <<"
+		<table border=\"1\">
+			<thead><tr>
+				<th>Action</th>
+				<th>Rated</th>
+				<th>No.</th>
+				<th>Title</th>
+				<th>Duration</th>
+			</tr></thead>
+			<tbody>
+">>).
+-define(XHTML_SONGS_TBL_END, <<"\t\t\t</tbody>\n\t\t</table>\n">>).
 
 % --------------------------------------------------------------------[ Code ]--
 start(Options) ->
@@ -59,8 +82,10 @@ loop(MPD, RadioOptions, Files, Req) ->
 		respond_tab_start(MPD, RadioOptions, Req);
 	"/playlist.xhtml" when Method =:= 'GET'; Method =:= 'HEAD' ->
 		respond_tab_playlist(MPD, Req);
-	"/songs.xhtml" when Method =:= 'GET'; Method =:= 'POST' ->
+	"/songs.xhtml" when Method =:= 'GET'; Method =:= 'HEAD' ->
 		respond_tab_songs(MPD, Req);
+	"/albums.xhtml" when Method =:= 'GET'; Method =:= 'HEAD' ->
+		respond_tab_albums(MPD, Req);
 	"/files.xhtml" when Method =:= 'GET' ->
 		respond_tab_files(Files, Req);
 	% control
@@ -80,6 +105,10 @@ loop(MPD, RadioOptions, Files, Req) ->
 		process_modify_playlist(MPD, Req, "playlist.xhtml");
 	"/control_player.erl" when Method =:= 'POST' ->
 		process_control_player(MPD, Req);
+	"/rate_up.erl" when Method =:= 'POST' ->
+		process_update_rating(MPD, Req, 2);
+	"/rate_down.erl" when Method =:= 'POST' ->
+		process_update_rating(MPD, Req, -2);
 	_Other ->
 		mochiweb_request:respond({404, [{"Content-Type", "text/plain"}],
 					"not found\n"}, Req)
@@ -228,6 +257,7 @@ generate_navigation(OnPage) ->
 	|| Page <- [
 		{<<"Start">>,    <<"index.xhtml">>},
 		{<<"Playlist">>, <<"playlist.xhtml">>},
+		{<<"Albums">>,   <<"albums.xhtml">>},
 		{<<"Songs">>,    <<"songs.xhtml">>},
 		{<<"Files">>,    <<"files.xhtml">>}
 	]], <<"</p>\n">>].
@@ -283,71 +313,115 @@ respond_tab_playlist(MPD, Req) ->
 			?XHTML_PLAYLIST_BOT], <<"playlist.xhtml">>, Req).
 
 respond_tab_songs(MPD, Req) ->
+	respond_tab_songs_cb(MPD, Req, fun accumulate_row/4, <<"songs.xhtml">>).
+
+respond_tab_songs_cb(MPD, Req, CB, Return) ->
 	{ok, Conn} = maempsia_erlmpd:connect(MPD),
 	% This tag type limiting brings a massive performance improvement
 	ok = erlmpd:tagtypes_clear(Conn),
 	ok = erlmpd:tagtypes_enable(Conn,
 			[track, artist, album, date, title, albumartist, disc]),
-	Rows = [generate_songs_rows(Conn, Artist) ||
+	Rows = [generate_songs_rows(Conn, Artist, Return, CB) ||
 		Artist <- erlmpd:list(Conn, albumartist), Artist /= <<>>],
 	erlmpd:disconnect(Conn),
-	respond_with_page([<<"\t\t<table border=\"1\">\n
-			<thead><tr>
-				<th>Action</th>
-				<th>Rated</th>
-				<th>No.</th>
-				<th>Title</th>
-				<th>Duration</th>
-			</tr></thead>
-			<tbody>\n">>,
-				Rows,
-			<<"\t\t\t</tbody>\n\t\t</table>\n">>],
-		<<"songs.xhtml">>, Req).
+	respond_with_page([?XHTML_SONGS_TBL_BEGIN, Rows,
+					?XHTML_SONGS_TBL_END], Return, Req).
 
-generate_songs_rows(Conn, Artist) ->
+generate_songs_rows(Conn, Artist, Return, CB) ->
 	{_Meta, Val} = lists:foldl(fun(Song, MetaAcc) ->
-			accumulate_row(Conn, Song, MetaAcc)
-		end, {{}, []}, sort_songs(erlmpd:find(Conn,
-			{tagop, albumartist, eq, Artist}
-		))),
-	Val.
+		CB(Conn, Song, Return, MetaAcc)
+	end, {{}, []}, sort_songs(erlmpd:find(Conn,
+		{tagop, albumartist, eq, Artist}
+	))),
+	lists:reverse(Val).
 
-accumulate_row(Conn, Song, {Meta, Acc}) ->
+accumulate_row(Conn, Song, Return, {Meta, Acc}) ->
 	SMeta = {proplists:get_value('Album', Song),
 					proplists:get_value('Disc', Song, -1)},
-	{SMeta, [Acc|case SMeta =:= Meta of
-		true  -> format_song(Conn, Song);
-		false -> [format_header(Song)|format_song(Conn, Song)]
-	end]}.
+	{SMeta, case SMeta =:= Meta of
+		true  -> [format_song(Conn, Song)|Acc];
+		false -> [format_song(Conn, Song)|[format_header(Conn, Song,
+							Return, <<"th">>)|Acc]]
+		end}.
 
-format_header(Song) ->
-	ArtistQuot = format_artist(Song),
-	AlbumQuot = quote_xml(proplists:get_value('Album', Song,
-							<<"(unknown album)">>)),
-	Disc = proplists:get_value('Disc', Song, -1),
-	DiscInfo = case Disc of
+format_header(Conn, Song, Return, AlbumTag) ->
+	Artist     = format_artist_noquot(Song),
+	ArtistQuot = quote_xml(Artist),
+	Album      = proplists:get_value('Album', Song, <<"(unknown album)">>),
+	AlbumQuot  = quote_xml(Album),
+	Anchor     = ["hdr_", normalize_for_id(Artist), $_,
+						normalize_for_id(Album)],
+	Disc       = proplists:get_value('Disc', Song, -1),
+	DiscInfo   = case Disc of
 			-1    -> <<>>;
 			1     -> <<>>;
 			_Disc -> [<<" (">>, integer_to_binary(Disc), <<")">>]
+			end,
+	InputForAlbum = [<<"
+		\t\t\t\t\t<input type=\"hidden\" name=\"return\" value=\"">>,
+						Return, <<"\"/>
+		\t\t\t\t\t<input type=\"hidden\" name=\"artist\" value=\"">>,
+						ArtistQuot, <<"\"/>
+		\t\t\t\t\t<input type=\"hidden\" name=\"album\" value=\"">>,
+						AlbumQuot, <<"\"/>">>],
+	AlbumRating = maempsia_erlmpd:get_album_rating(Conn, Song),
+	{RatingEnabled, RatingClass} = if
+		AlbumRating =:= ?RATING_NOTPOSS
+				-> {<<" disabled=\"disabled\"">>, <<>>};
+		AlbumRating > 8 -> {<<>>, <<" class=\"aratmax\"">>};
+		AlbumRating > 6 -> {<<>>, <<" class=\"arathigh\"">>};
+		true            -> {<<>>, <<>>}
 		end,
-	[<<"\t\t\t\t<tr><th colspan=\"4\">">>, ArtistQuot,
-	<<" (">>, format_date(Song),
-	<<"): ">>, AlbumQuot, DiscInfo, <<"</th><td>
-	\t\t\t\t<form method=\"post\" action=\"add_album.erl\">
-	\t\t\t\t\t<input type=\"hidden\" name=\"artist\" value=\"">>,
-					ArtistQuot, <<"\"/>
-	\t\t\t\t\t<input type=\"hidden\" name=\"album\" value=\"">>,
-					AlbumQuot, <<"\"/>
-	\t\t\t\t\t<input type=\"hidden\" name=\"disc\" value=\"">>,
+	[<<"\t\t\t\t<tr>
+	\t\t\t\t<td>
+	\t\t\t\t\t<a id=\"">>, Anchor, <<"\"/>
+	\t\t\t\t\t<form method=\"post\" action=\"rate_down.erl\">">>,
+							InputForAlbum, <<"
+	\t\t\t\t\t\t<input type=\"submit\" name=\"rminus\" value=\"R-\"">>,
+							RatingEnabled, <<"/>
+	\t\t\t\t\t</form>
+	\t\t\t\t</td>
+	\t\t\t\t<td">>, RatingClass, <<">">>, format_rating(AlbumRating),
+								<<"</td>
+	\t\t\t\t<td>
+	\t\t\t\t\t<form method=\"post\" action=\"rate_up.erl\">">>,
+							InputForAlbum, <<"
+	\t\t\t\t\t\t<input type=\"submit\" name=\"rplus\" value=\"R+\"">>,
+							RatingEnabled, <<"/>
+	\t\t\t\t\t</form>
+	\t\t\t\t</td>
+	\t\t\t\t<">>, AlbumTag, <<">">>, ArtistQuot, <<" (">>,
+			format_date(Song), <<"): ">>, AlbumQuot, DiscInfo,
+			<<"</">>, AlbumTag, <<">
+	\t\t\t\t<td>
+	\t\t\t\t\t<form method=\"post\" action=\"add_album.erl\">">>,
+			InputForAlbum, <<"
+	\t\t\t\t\t\t<input type=\"hidden\" name=\"disc\" value=\"">>,
 					integer_to_binary(Disc), <<"\"/>
-	\t\t\t\t\t<input type=\"submit\" name=\"add_here\" value=\"A\"/>
-	\t\t\t\t\t<input type=\"submit\" name=\"add_end\" value=\"a\"/>
-	\t\t\t\t</form>
-	\t\t\t</td></tr>\n">>].
+	\t\t\t\t\t\t<input type=\"submit\" name=\"add_here\" value=\"A\"/>
+	\t\t\t\t\t\t<input type=\"submit\" name=\"add_end\" value=\"a\"/>
+	\t\t\t\t\t</form>
+	\t\t\t\t</td>
+	\t\t\t</tr>\n">>].
 
 format_artist(Song) ->
-	quote_xml(proplists:get_value('AlbumArtist', Song,
-		proplists:get_value('Artist', Song, <<"(unknown artist)">>))).
+	quote_xml(format_artist_noquot(Song)).
+
+format_artist_noquot(Song) ->
+	proplists:get_value('AlbumArtist', Song,
+		proplists:get_value('Artist', Song, <<"(unknown artist)">>)).
+
+normalize_for_id(Str) -> lists:map(fun normalize_id_char/1,
+				lists:flatten(io_lib:format("~s", [Str]))).
+% https://www.w3.org/TR/html401/types.html#type-name -- [A-Za-z0-9-_:.]
+normalize_id_char(Chr) when ((Chr >= $A) and (Chr =< $Z)) -> Chr;
+normalize_id_char(Chr) when ((Chr >= $a) and (Chr =< $z)) -> Chr;
+normalize_id_char(Chr) when ((Chr >= $0) and (Chr =< $9)) -> Chr;
+normalize_id_char($-)                                     -> $-;
+normalize_id_char($_)                                     -> $_;
+normalize_id_char($:)                                     -> $:;
+normalize_id_char($.)                                     -> $.;
+normalize_id_char(_Other)                                 -> $_.
 
 format_date(Song) ->
 	quote_xml(proplists:get_value('Date', Song, <<"?">>)).
@@ -386,6 +460,7 @@ format_add_song_td(URI, Action) ->
 	\t\t\t</td>">>].
 
 format_rating(?RATING_UNRATED) -> <<"- - -">>;
+format_rating(?RATING_NOTPOSS) -> <<"-rat-">>;
 format_rating(10)              -> <<"&#9733;&#9733;&#9733;&#9733;&#9733;">>;
 format_rating( 9)              -> <<"&#9733;&#9733;&#9733;&#9733;&#9734;">>;
 format_rating( 8)              -> <<"&#9733;&#9733;&#9733;&#9733;.">>;
@@ -422,6 +497,18 @@ cmp_prop_lex(ListA, ListB, [Tag|Rem]) ->
 	true          -> false
 	end.
 
+respond_tab_albums(MPD, Req) ->
+	respond_tab_songs_cb(MPD, Req, fun accumulate_row_album/4,
+							<<"albums.xhtml">>).
+
+accumulate_row_album(Conn, Song, Return, {Meta, Acc}) ->
+	SMeta = {proplists:get_value('Album', Song),
+					proplists:get_value('Disc', Song, -1)},
+	{SMeta, case SMeta =:= Meta of
+		true  -> Acc;
+		false -> [format_header(Conn, Song, Return, <<"td">>)|Acc]
+	end}.
+
 respond_tab_files(Files, Req) ->
 	respond_with_page([format_file(F) || F <- Files],
 							<<"files.xhtml">>, Req).
@@ -433,19 +520,11 @@ format_file(File) ->
 
 process_add_album(MPD, Req) ->
 	Form = mochiweb_util:parse_qs(mochiweb_request:recv_body(Req)),
-	% TODO x SECURITY FORM VALUE DIRECTLY TO MPD - VALIDATE BEFORE!
-	DiscFlt = case proplists:get_value("disc", Form, "-1") of
-			"-1" -> [];
-			Disc -> [{tagop, disc, eq, Disc}]
-		end,
+	{Filter, Return} = form_to_filter_and_return(Form),
 
 	{ok, Conn} = maempsia_erlmpd:connect(MPD),
 	SongsURIs = [proplists:get_value(file, Song)
-		|| Song <- sort_songs(erlmpd:find(Conn, {land, DiscFlt ++ [
-			{tagop, album, eq, proplists:get_value("album", Form)},
-			{tagop, albumartist, eq, proplists:get_value("artist",
-									Form)}
-		]}))],
+			|| Song <- sort_songs(erlmpd:find(Conn, Filter))],
 
 	case is_add_here(Form) of
 	true ->
@@ -468,7 +547,26 @@ process_add_album(MPD, Req) ->
 		end, SongsURIs)
 	end,
 	erlmpd:disconnect(Conn),
-	redirect("songs.xhtml", Req).
+	redirect(Return, Req).
+
+% TODO x SECURITY FORM VALUE DIRECTLY TO MPD - VALIDATE BEFORE!
+form_to_filter_and_return(Form) ->
+	Artist  = proplists:get_value("artist", Form),
+	Album   = proplists:get_value("album",  Form),
+	Primary = [{tagop, albumartist, eq, Artist},
+		   {tagop, album,       eq, Album}],
+	Filter  = {land, case proplists:get_value("disc", Form, "-1") of
+			"-1" -> Primary;
+			Disc -> Primary ++ [{tagop, disc, eq, Disc}]
+			end},
+	Anchor  = ["hdr_", normalize_for_id(Artist), "_",
+						normalize_for_id(Album)],
+	Return  = case proplists:get_value("return", Form) of
+		"songs.xhtml"  -> "songs.xhtml#" ++ lists:flatten(Anchor);
+		"albums.xhtml" -> "albums.xhtml#" ++ lists:flatten(Anchor);
+		_Other         -> "index.xhtml"
+		end,
+	{Filter, Return}.
 
 % add_end/a, add_here/A - query for add_end and if it is absent assume add_here.
 % This logic is as good as any and it does not seem to be worth checking for
@@ -493,6 +591,7 @@ process_add_song(MPD, Req, ReturnTo) ->
 	false ->
 		ok = erlmpd:add(Conn, URI)
 	end,
+	% TODO MAKE ANCHOR FROM URI AND ADD IT TO ReturnTo
 	erlmpd:disconnect(Conn),
 	redirect(ReturnTo, Req).
 
@@ -515,7 +614,7 @@ process_modify_service(RadioOptions, Req) ->
 		ok = gen_server:cast(maempsia_podcast, podcast_start);
 	_Other ->
 		case proplists:get_value("podcast_stop", Form) of
-		"Stop" -> ok = gen_server:cast(maempsia_podcast, podcast_stop);
+		"Stop"  -> ok = gen_server:cast(maempsia_podcast, podcast_stop);
 		_Other2 -> ok
 		end
 	end,
@@ -534,6 +633,7 @@ process_modify_playlist(MPD, Req, ReturnTo) ->
 	_ActRemove ->
 		ok = erlmpd:deleteid(Conn, ID)
 	end,
+	erlmpd:disconnect(Conn),
 	redirect(ReturnTo, Req).
 
 process_control_player(MPD, Req) ->
@@ -569,3 +669,23 @@ conditional_action(Form, Field, Op) ->
 	undefined -> [];
 	_EntrySet -> [Op]
 	end.
+
+% Currently works with album rating only...
+process_update_rating(MPD, Req, Delta) ->
+	Form = mochiweb_util:parse_qs(mochiweb_request:recv_body(Req)),
+	{Filter, Return} = form_to_filter_and_return(Form),
+	{ok, Conn} = maempsia_erlmpd:connect(MPD),
+	OldSticker = maempsia_erlmpd:get_album_rating_by_filter(Conn, Filter),
+	if
+	OldSticker =:= ?RATING_UNRATED ->
+		ok = maempsia_erlmpd:set_album_rating_by_filter(Conn, Filter,
+								6 + Delta);
+	(OldSticker + Delta =< 0) or (OldSticker + Delta > 10) ->
+		ok = maempsia_erlmpd:delete_album_rating_by_filter(
+								Conn, Filter);
+	true ->
+		ok = maempsia_erlmpd:set_album_rating_by_filter(Conn, Filter,
+							OldSticker + Delta)
+	end,
+	erlmpd:disconnect(Conn),
+	redirect(Return, Req).

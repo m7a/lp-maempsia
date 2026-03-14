@@ -1,9 +1,12 @@
 -module(maempsia_erlmpd).
 -export([connect/1, foreach_song/3, get_playcount/2, get_rating/2,
-	get_status_props/1, get_artist/1,
-	normalize_safe/1, normalize_strong/1]).
+	get_album_rating/2, get_album_rating_by_filter/2,
+	set_album_rating_by_filter/3, delete_album_rating_by_filter/2,
+	get_status_props/1, get_artist/1, normalize_safe/1,
+	normalize_strong/1]).
 -include_lib("kernel/include/logger.hrl").
 -define(RATING_UNRATED, -1).
+-define(RATING_NOTPOSS, -2).
 
 connect(MPD) ->
 	{Host, Port} = maps:get(ip, MPD),
@@ -48,6 +51,29 @@ get_rating(Conn, URI) ->
 	{error, _Any} -> ?RATING_UNRATED;
 	ProperRating  -> list_to_integer(ProperRating)
 	end.
+
+get_album_rating(Conn, Song) ->
+	AlbumArtist = proplists:get_value('AlbumArtist', Song),
+	AlbumTitle  = proplists:get_value('Album',       Song),
+	case (AlbumArtist =:= undefined) or (AlbumTitle =:= undefined) of
+	true  -> ?RATING_NOTPOSS;
+	false -> get_album_rating_by_filter(Conn,
+				{land, [{tagop, albumartist, eq, AlbumArtist},
+					{tagop, album,       eq, AlbumTitle}]})
+	end.
+
+get_album_rating_by_filter(Conn, Filter) ->
+	case erlmpd:sticker_get(Conn, "filter", Filter, "rating") of
+	{error, _Any} -> ?RATING_UNRATED;
+	ProperRating  -> list_to_integer(ProperRating)
+	end.
+
+set_album_rating_by_filter(Conn, Filter, Rating) ->
+	erlmpd:sticker_set(Conn, "filter", Filter, "rating",
+						integer_to_list(Rating)).
+
+delete_album_rating_by_filter(Conn, Filter) ->
+	erlmpd:sticker_delete(Conn, "filter", Filter, "rating").
 
 get_status_props(Conn) ->
 	[{status, erlmpd:status(Conn)},
