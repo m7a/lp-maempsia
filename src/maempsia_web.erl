@@ -63,6 +63,7 @@ start(Options) ->
 	{ok, WebinterfaceOptions} = application:get_env(maempsia, webinterface),
 	RadioOptions = lists:sort(maps:keys(RadioGenerators)),
 	Files        = lists:sort(maps:get(files, WebinterfaceOptions)),
+	maempsia_cache:init(), % establish ETS table
 	% TODO THERE IS ALSO A start_link version which I should probably prefer?
 	mochiweb_http:start([{name, ?MODULE}|[ {loop, fun(Req) ->
 					loop(MPD, RadioOptions, Files, Req)
@@ -197,7 +198,7 @@ respond_tab_start(MPD, RadioOptions, Req) ->
 		generate_xhtml_playlist_top(<<"PC">>),
 		ScheduleInfo,
 		?XHTML_PLAYLIST_BOT
-	], <<"index.xhtml">>, Req).
+	], <<"index.xhtml">>, Req, []).
 
 generate_playlist_row(Conn, Curs, Song, From) ->
 	URI = proplists:get_value(file, Song),
@@ -239,13 +240,13 @@ generate_podcast_form_cell(_Enable, Name, Label) ->
 	[<<"\t\t\t\t\t\t<td><input type=\"submit\" name=\"">>, Name,
 				<<"\" value=\"">>, Label, <<"\"/></td>\n">>].
 
-respond_with_page(Text, OnPage, Req) ->
-	mochiweb_request:respond({200, [
-		{"Content-Type", "application/xhtml+xml; charset=UTF-8"}
-	], [
-		?XHTML_TPL_TOP, generate_navigation(OnPage), Text,
-		?XHTML_TPL_BOT
-	]}, Req).
+respond_with_page(Text, OnPage, Req, ExtraHeaders) ->
+	mochiweb_request:respond(
+		{200, [{"Content-Type", "application/xhtml+xml; charset=UTF-8"}|
+				ExtraHeaders],
+			[?XHTML_TPL_TOP, generate_navigation(OnPage), Text,
+				?XHTML_TPL_BOT]},
+		Req).
 
 generate_navigation(OnPage) ->
 	[<<"\t\t<p id=\"navigation\">| ">>, [case Page of
@@ -310,22 +311,29 @@ respond_tab_playlist(MPD, Req) ->
 		end,
 	erlmpd:disconnect(Conn),
 	respond_with_page([generate_xhtml_playlist_top(<<"Action">>), Rows,
-			?XHTML_PLAYLIST_BOT], <<"playlist.xhtml">>, Req).
+			?XHTML_PLAYLIST_BOT], <<"playlist.xhtml">>, Req, []).
 
 respond_tab_songs(MPD, Req) ->
 	respond_tab_songs_cb(MPD, Req, fun accumulate_row/4, <<"songs.xhtml">>).
 
 respond_tab_songs_cb(MPD, Req, CB, Return) ->
-	{ok, Conn} = maempsia_erlmpd:connect(MPD),
-	% This tag type limiting brings a massive performance improvement
-	ok = erlmpd:tagtypes_clear(Conn),
-	ok = erlmpd:tagtypes_enable(Conn,
+	case maempsia_cache:check_requires_update(Return, Req) of
+	true ->
+		{ok, Conn} = maempsia_erlmpd:connect(MPD),
+		% This tag type limiting brings a massive performance
+		% improvement
+		ok = erlmpd:tagtypes_clear(Conn),
+		ok = erlmpd:tagtypes_enable(Conn,
 			[track, artist, album, date, title, albumartist, disc]),
-	Rows = [generate_songs_rows(Conn, Artist, Return, CB) ||
-		Artist <- erlmpd:list(Conn, albumartist), Artist /= <<>>],
-	erlmpd:disconnect(Conn),
-	respond_with_page([?XHTML_SONGS_TBL_BEGIN, Rows,
-					?XHTML_SONGS_TBL_END], Return, Req).
+		Rows = [generate_songs_rows(Conn, Artist, Return, CB) || Artist
+			<- erlmpd:list(Conn, albumartist), Artist /= <<>>],
+		erlmpd:disconnect(Conn),
+		Content = [?XHTML_SONGS_TBL_BEGIN, Rows, ?XHTML_SONGS_TBL_END],
+		HDR = maempsia_cache:store(Return, Content),
+		respond_with_page(Content, Return, Req, HDR);
+	false ->
+		ok
+	end.
 
 generate_songs_rows(Conn, Artist, Return, CB) ->
 	{_Meta, Val} = lists:foldl(fun(Song, MetaAcc) ->
@@ -511,7 +519,7 @@ accumulate_row_album(Conn, Song, Return, {Meta, Acc}) ->
 
 respond_tab_files(Files, Req) ->
 	respond_with_page([format_file(F) || F <- Files],
-							<<"files.xhtml">>, Req).
+						<<"files.xhtml">>, Req, []).
 
 format_file(File) ->
 	{ok, ContentsRaw} = file:read_file(File),
@@ -688,4 +696,5 @@ process_update_rating(MPD, Req, Delta) ->
 							OldSticker + Delta)
 	end,
 	erlmpd:disconnect(Conn),
+	maempsia_cache:invalidate(),
 	redirect(Return, Req).
