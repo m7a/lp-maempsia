@@ -15,13 +15,25 @@
 <html xmlns=\"http://www.w3.org/1999/xhtml\" lang=\"en-US\" xml:lang=\"en-US\">
 	<head>
 		<meta name=\"viewport\"
-			content=\"width=device-width, initial-scale=1\"/>
+			content=\"width=device-width, initial-scale=0.8\"/>
 		<meta name=\"color-scheme\" content=\"light dark\"/>
 		<title>Ma_Sys.ma Erlang Music Player SIdecar Automation</title>
 		<style type=\"text/css\">
 			/* <![CDATA[ */
 			body {
 				font-family: \"PT Mono\", monospace;
+			}
+			table {
+				width: 100%;
+				max-width: 100%;
+			}
+			table, table * {
+				border-color: ButtonBorder;
+				border-collapse: collapse;
+			}
+			input {
+				height: 1.8em;
+				min-width: 4ex;
 			}
 			.arathigh {
 				color: AccentColorText;
@@ -207,7 +219,7 @@ generate_playlist_row(Conn, Curs, Song, From) ->
 			true  -> {<<"<strong>">>, <<"</strong>">>};
 			false -> {<<>>, <<>>}
 		end,
-	[<<"\t\t\t\t<tr>">>,
+	[<<"<tr>">>,
 	format_add_song_td(URI, [<<"add_song_from_">>, From, <<".erl">>]),
 	<<"<td>">>,      BO, format_rating(
 				maempsia_erlmpd:get_rating(Conn, URI)), BC,
@@ -215,29 +227,28 @@ generate_playlist_row(Conn, Curs, Song, From) ->
 	<<"</td><td>">>, BO, format_title(Song),                        BC,
 	<<"</td><td>">>, BO, format_duration(Song),                     BC,
 	<<"</td><td><form method=\"post\" action=\"modify_playlist_from_">>,
-							From, <<".erl\">
-	\t\t\t\t<input type=\"hidden\" name=\"id\" value=\"">>,
+							From,
+	<<".erl\"><input type=\"hidden\" name=\"id\" value=\"">>,
 						integer_to_binary(ID), <<"\"/>
-	\t\t\t\t<input type=\"submit\" name=\"act_remove\" value=\"-\"/>
-	\t\t\t\t<input type=\"submit\" name=\"act_play\" value=\"&#9205;\"/>
-	\t\t\t</form></td></tr>\n">>].
+	<input type=\"submit\" name=\"act_remove\" value=\"-\"/>
+	<input type=\"submit\" name=\"act_play\" value=\"&#9205;\"/>
+	</form></td></tr>\n">>].
 
 generate_schedule_row(Conn, URI) ->
 	[Song] = erlmpd:find(Conn, {fileeq, URI}),
-	[<<"\t\t\t\t<tr>">>,
-	format_add_song_td(URI, <<"add_song_from_start.erl">>),
+	[<<"<tr>">>,     format_add_song_td(URI, <<"add_song_from_start.erl">>),
 	<<"<td>">>,      format_rating(maempsia_erlmpd:get_rating(Conn, URI)),
 	<<"</td><td>">>, format_artist(Song),
 	<<"</td><td>">>, format_title(Song),
 	<<"</td><td>">>, format_duration(Song),
 	<<"</td><td>">>,
-	integer_to_binary(maempsia_erlmpd:get_playcount(Conn, URI)),
+		integer_to_binary(maempsia_erlmpd:get_playcount(Conn, URI)),
 	"</td></tr>\n"].
 
 generate_podcast_form_cell(Enable, _Name, _Label) when not Enable ->
-	<<"\t\t\t\t\t\t<td></td>\n">>;
+	<<"<td></td>\n">>;
 generate_podcast_form_cell(_Enable, Name, Label) ->
-	[<<"\t\t\t\t\t\t<td><input type=\"submit\" name=\"">>, Name,
+	[<<"<td><input type=\"submit\" name=\"">>, Name,
 				<<"\" value=\"">>, Label, <<"\"/></td>\n">>].
 
 respond_with_page(Text, OnPage, Req, ExtraHeaders) ->
@@ -267,7 +278,7 @@ generate_radio_options(RadioOptions, Gen, HasSchedule) ->
 	lists:map(fun(Ent) ->
 		Esc    = quote_xml(atom_to_binary(Ent)),
 		Suffix = [Esc, <<"</option>\n">>],
-		Prefix = [<<"\t\t\t\t\t\t<option value=\"">>, Esc, <<"\"">>],
+		Prefix = [<<"<option value=\"">>, Esc, <<"\"">>],
 		case Ent of
 		Gen when HasSchedule ->
 			[Prefix|[<<" selected=\"selected\">">>|Suffix]];
@@ -296,7 +307,7 @@ respond_tab_playlist(MPD, Req) ->
 	PLength = proplists:get_value(playlistlength, Status, 0),
 	Curs    = proplists:get_value(songid, Status, -1),
 	Rows = case PLength > ?MAX_PL of
-		true -> [[<<"\t\t\t\t<tr><td>...</td><td>...</td>">>,
+		true -> [[<<"<tr><td>...</td><td>...</td>">>,
 					<<"<td colspan=\"2\"><em>Skipped ">>,
 					integer_to_binary(PLength - 600),
 					<<" playlist entries.</em></td>">>,
@@ -366,11 +377,11 @@ format_header(Conn, Song, Return, AlbumTag) ->
 			_Disc -> [<<" (">>, integer_to_binary(Disc), <<")">>]
 			end,
 	InputForAlbum = [<<"
-		\t\t\t\t\t<input type=\"hidden\" name=\"return\" value=\"">>,
+		<input type=\"hidden\" name=\"return\" value=\"">>,
 						Return, <<"\"/>
-		\t\t\t\t\t<input type=\"hidden\" name=\"artist\" value=\"">>,
+		<input type=\"hidden\" name=\"artist\" value=\"">>,
 						ArtistQuot, <<"\"/>
-		\t\t\t\t\t<input type=\"hidden\" name=\"album\" value=\"">>,
+		<input type=\"hidden\" name=\"album\" value=\"">>,
 						AlbumQuot, <<"\"/>">>],
 	AlbumRating = maempsia_erlmpd:get_album_rating(Conn, Song),
 	{RatingEnabled, RatingClass} = if
@@ -380,37 +391,26 @@ format_header(Conn, Song, Return, AlbumTag) ->
 		AlbumRating > 6 -> {<<>>, <<" class=\"arathigh\"">>};
 		true            -> {<<>>, <<>>}
 		end,
-	[<<"\t\t\t\t<tr>
-	\t\t\t\t<td>
-	\t\t\t\t\t<a id=\"">>, Anchor, <<"\"/>
-	\t\t\t\t\t<form method=\"post\" action=\"rate_down.erl\">">>,
+	[<<"<tr><td><a id=\"">>, Anchor, <<"\"/>
+	<form method=\"post\" action=\"rate_down.erl\">">>,
 							InputForAlbum, <<"
-	\t\t\t\t\t\t<input type=\"submit\" name=\"rminus\" value=\"R-\"">>,
+	<input type=\"submit\" name=\"rminus\" value=\"R-\"">>,
 							RatingEnabled, <<"/>
-	\t\t\t\t\t</form>
-	\t\t\t\t</td>
-	\t\t\t\t<td">>, RatingClass, <<">">>, format_rating(AlbumRating),
-								<<"</td>
-	\t\t\t\t<td>
-	\t\t\t\t\t<form method=\"post\" action=\"rate_up.erl\">">>,
+	</form></td><td">>, RatingClass, <<">">>, format_rating(AlbumRating),
+	<<"</td><td><form method=\"post\" action=\"rate_up.erl\">">>,
 							InputForAlbum, <<"
-	\t\t\t\t\t\t<input type=\"submit\" name=\"rplus\" value=\"R+\"">>,
+	<input type=\"submit\" name=\"rplus\" value=\"R+\"">>,
 							RatingEnabled, <<"/>
-	\t\t\t\t\t</form>
-	\t\t\t\t</td>
-	\t\t\t\t<">>, AlbumTag, <<">">>, ArtistQuot, <<" (">>,
+	</form></td><">>, AlbumTag, <<">">>, ArtistQuot, <<" (">>,
 			format_date(Song), <<"): ">>, AlbumQuot, DiscInfo,
 			<<"</">>, AlbumTag, <<">
-	\t\t\t\t<td>
-	\t\t\t\t\t<form method=\"post\" action=\"add_album.erl\">">>,
+	<td><form method=\"post\" action=\"add_album.erl\">">>,
 			InputForAlbum, <<"
-	\t\t\t\t\t\t<input type=\"hidden\" name=\"disc\" value=\"">>,
+	<input type=\"hidden\" name=\"disc\" value=\"">>,
 					integer_to_binary(Disc), <<"\"/>
-	\t\t\t\t\t\t<input type=\"submit\" name=\"add_here\" value=\"A\"/>
-	\t\t\t\t\t\t<input type=\"submit\" name=\"add_end\" value=\"a\"/>
-	\t\t\t\t\t</form>
-	\t\t\t\t</td>
-	\t\t\t</tr>\n">>].
+	<input type=\"submit\" name=\"add_here\" value=\"A\"/><input
+				type=\"submit\" name=\"add_end\" value=\"a\"/>
+	</form></td></tr>\n">>].
 
 format_artist(Song) ->
 	quote_xml(format_artist_noquot(Song)).
@@ -446,8 +446,7 @@ quote_xml_char(C)  -> C.
 
 format_song(Conn, Song) ->
 	URI = proplists:get_value(file, Song),
-	[<<"\t\t\t\t<tr>">>,
-	format_add_song_td(URI, <<"add_song_from_songs.erl">>),
+	[<<"<tr>">>, format_add_song_td(URI, <<"add_song_from_songs.erl">>),
 	<<"<td>">>, format_rating(maempsia_erlmpd:get_rating(Conn, URI)),
 	<<"</td><td>">>,
 	integer_to_binary(proplists:get_value('Track', Song, 0)),
@@ -458,14 +457,11 @@ format_title(Song) ->
 	quote_xml(proplists:get_value('Title', Song, <<"(untitled)">>)).
 
 format_add_song_td(URI, Action) ->
-	[<<"<td>
-	\t\t\t\t<form method=\"post\" action=\"">>, Action, <<"\">
-	\t\t\t\t\t<input type=\"hidden\" name=\"file\" value=\"">>,
+	[<<"<td><form method=\"post\" action=\"">>, Action, <<"\">
+	<input type=\"hidden\" name=\"file\" value=\"">>,
 							quote_xml(URI), <<"\"/>
-	\t\t\t\t\t<input type=\"submit\" name=\"add_end\" value=\"a\"/>
-	\t\t\t\t\t<input type=\"submit\" name=\"add_here\" value=\"A\"/>
-	\t\t\t\t</form>
-	\t\t\t</td>">>].
+	<input type=\"submit\" name=\"add_end\" value=\"a\"/><input
+		type=\"submit\" name=\"add_here\" value=\"A\"/></form></td>">>].
 
 format_rating(?RATING_UNRATED) -> <<"- - -">>;
 format_rating(?RATING_NOTPOSS) -> <<"-rat-">>;
@@ -599,9 +595,13 @@ process_add_song(MPD, Req, ReturnTo) ->
 	false ->
 		ok = erlmpd:add(Conn, URI)
 	end,
-	% TODO MAKE ANCHOR FROM URI AND ADD IT TO ReturnTo
+	[Song] = erlmpd:find(Conn, {fileeq, URI}),
 	erlmpd:disconnect(Conn),
-	redirect(ReturnTo, Req).
+	Artist = format_artist_noquot(Song),
+	Album  = proplists:get_value('Album', Song, <<"(unknown album)">>),
+	Anchor = ["#hdr_", normalize_for_id(Artist), "_",
+						normalize_for_id(Album)],
+	redirect(ReturnTo ++ Anchor, Req).
 
 process_modify_service(RadioOptions, Req) ->
 	Form = mochiweb_util:parse_qs(mochiweb_request:recv_body(Req)),
