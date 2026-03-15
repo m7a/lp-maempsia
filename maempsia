@@ -1,3 +1,6 @@
 #!/bin/sh -eu
 # Wrapper for MAEMPSIA (c) 2026 Ma_Sys.ma <info@masysma.net>
+if [ -f "$HOME/.mdvl/maempsia.config" ]; then
+	set -- -config "$HOME/.mdvl/maempsia.config" "$@"
+fi
 exec /usr/share/mdvl-maempsia/maempsia/bin/maempsia foreground "$@"

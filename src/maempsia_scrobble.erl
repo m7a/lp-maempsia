@@ -14,7 +14,8 @@ init([Options]) ->
 							interrupt_check),
 	{ok, #sc{
 		mpd           = proplists:get_value(mpd, Options),
-		maloja        = {maps:get(url, Maloja), maps:get(key, Maloja)},
+		maloja        = {maps:get(url, Maloja, undefined),
+				 maps:get(key, Maloja, undefined)},
 		scrobble_file = maps:get(scrobble_file, Maloja),
 		use_album_art = maps:get(use_album_art, Maloja),
 		is_active     = maps:get(scrobble_active, Maloja),
