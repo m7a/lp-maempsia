@@ -367,6 +367,7 @@ format_header(Conn, Song, Return, AlbumTag) ->
 	Artist     = format_artist_noquot(Song),
 	ArtistQuot = quote_xml(Artist),
 	Album      = proplists:get_value('Album', Song, <<"(unknown album)">>),
+	DateQuot   = format_date(Song),
 	AlbumQuot  = quote_xml(Album),
 	Anchor     = ["hdr_", normalize_for_id(Artist), $_,
 						normalize_for_id(Album)],
@@ -376,13 +377,14 @@ format_header(Conn, Song, Return, AlbumTag) ->
 			1     -> <<>>;
 			_Disc -> [<<" (">>, integer_to_binary(Disc), <<")">>]
 			end,
-	InputForAlbum = [<<"
-		<input type=\"hidden\" name=\"return\" value=\"">>,
+	InputForAlbum = [<<"<input type=\"hidden\" name=\"return\" value=\"">>,
 						Return, <<"\"/>
-		<input type=\"hidden\" name=\"artist\" value=\"">>,
+			<input type=\"hidden\" name=\"artist\" value=\"">>,
 						ArtistQuot, <<"\"/>
-		<input type=\"hidden\" name=\"album\" value=\"">>,
-						AlbumQuot, <<"\"/>">>],
+			<input type=\"hidden\" name=\"album\" value=\"">>,
+						AlbumQuot, <<"\"/>
+			<input type=\"hidden\" name=\"date\" value=\"">>,
+						DateQuot, <<"\"/>">>],
 	AlbumRating = maempsia_erlmpd:get_album_rating(Conn, Song),
 	{RatingEnabled, RatingClass} = if
 		AlbumRating =:= ?RATING_NOTPOSS
@@ -402,7 +404,7 @@ format_header(Conn, Song, Return, AlbumTag) ->
 	<input type=\"submit\" name=\"rplus\" value=\"R+\"">>,
 							RatingEnabled, <<"/>
 	</form></td><">>, AlbumTag, <<">">>, ArtistQuot, <<" (">>,
-			format_date(Song), <<"): ">>, AlbumQuot, DiscInfo,
+			DateQuot, <<"): ">>, AlbumQuot, DiscInfo,
 			<<"</">>, AlbumTag, <<">
 	<td><form method=\"post\" action=\"add_album.erl\">">>,
 			InputForAlbum, <<"
@@ -555,22 +557,26 @@ process_add_album(MPD, Req) ->
 
 % TODO x SECURITY FORM VALUE DIRECTLY TO MPD - VALIDATE BEFORE!
 form_to_filter_and_return(Form) ->
-	Artist  = proplists:get_value("artist", Form),
-	Album   = proplists:get_value("album",  Form),
-	Primary = [{tagop, albumartist, eq, Artist},
-		   {tagop, album,       eq, Album}],
-	Filter  = {land, case proplists:get_value("disc", Form, "-1") of
-			"-1" -> Primary;
-			Disc -> Primary ++ [{tagop, disc, eq, Disc}]
-			end},
-	Anchor  = ["hdr_", normalize_for_id(Artist), "_",
+	Artist      = proplists:get_value("artist", Form),
+	Album       = proplists:get_value("album",  Form),
+	PrimaryRev  = [{tagop, album,       eq, Album},
+		       {tagop, albumartist, eq, Artist}],
+	FltPlusDate = case proplists:get_value("date", Form) of
+			"?"  -> PrimaryRev;
+			Date -> [{tagop, date, eq, Date}|PrimaryRev]
+			end,
+	FltPlusDisc = case proplists:get_value("disc", Form, "-1") of
+			"-1" -> FltPlusDate;
+			Disc -> [{tagop, disc, eq, Disc}|FltPlusDate]
+			end,
+	Anchor = ["hdr_", normalize_for_id(Artist), "_",
 						normalize_for_id(Album)],
-	Return  = case proplists:get_value("return", Form) of
+	Return = case proplists:get_value("return", Form) of
 		"songs.xhtml"  -> "songs.xhtml#" ++ lists:flatten(Anchor);
 		"albums.xhtml" -> "albums.xhtml#" ++ lists:flatten(Anchor);
 		_Other         -> "index.xhtml"
 		end,
-	{Filter, Return}.
+	{{land, lists:reverse(FltPlusDisc)}, Return}.
 
 % add_end/a, add_here/A - query for add_end and if it is absent assume add_here.
 % This logic is as good as any and it does not seem to be worth checking for

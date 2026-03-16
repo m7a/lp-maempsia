@@ -53,13 +53,24 @@ get_rating(Conn, URI) ->
 	end.
 
 get_album_rating(Conn, Song) ->
-	AlbumArtist = proplists:get_value('AlbumArtist', Song),
-	AlbumTitle  = proplists:get_value('Album',       Song),
-	case (AlbumArtist =:= undefined) or (AlbumTitle =:= undefined) of
-	true  -> ?RATING_NOTPOSS;
-	false -> get_album_rating_by_filter(Conn,
+	AlbumArtist = case proplists:get_value('AlbumArtist', Song) of
+			undefined -> proplists:get_value('Artist', Song);
+			AA        -> AA
+			end,
+	AlbumTitle = proplists:get_value('Album', Song),
+	Date = proplists:get_value('Date', Song),
+	if 
+	(AlbumArtist =:= undefined) or (AlbumTitle =:= undefined) ->
+		?RATING_NOTPOSS;
+	Date =:= undefined ->
+		get_album_rating_by_filter(Conn,
 				{land, [{tagop, albumartist, eq, AlbumArtist},
-					{tagop, album,       eq, AlbumTitle}]})
+					{tagop, album,       eq, AlbumTitle}]});
+	true ->
+		get_album_rating_by_filter(Conn,
+				{land, [{tagop, albumartist, eq, AlbumArtist},
+					{tagop, album,       eq, AlbumTitle},
+					{tagop, date,        eq, Date}]})
 	end.
 
 get_album_rating_by_filter(Conn, Filter) ->
