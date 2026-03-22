@@ -131,7 +131,20 @@ redirect(Target, Req) ->
 	mochiweb_request:respond({302, [{"Location", Target}], ""}, Req).
 
 respond_tab_start(MPD, RadioOptions, Req) ->
-	{Gen, Sched} = gen_server:call(maempsia_radio, get_schedule),
+	% get_schedule may be slow if the radio function is just in the process
+	% of computing the new schedule. This typically happens after the user
+	% has opted to enable the function.
+	%   The longer timeout causes much fewer headaches than handling the
+	% failure gracefully because in event of not getting a proper response
+	% to this message it is
+	%   (1) unclear if currenty, Radio is enabled i.e. in bad cases it could
+	% appear as if enabling it was not successful and
+	%   (2) there is need to handle a delayed reply cf. gen_server:call/3
+	% documentation.
+	%   For now, MAEMPSIA opts to (only) use the longer timeout and let web
+	% server processes which exceed the timeout die (this still allows
+	% subsequent webserver calls to work OK/correctly...)
+	{Gen, Sched} = gen_server:call(maempsia_radio, get_schedule, 40000),
 	HasPodcast   = gen_server:call(maempsia_podcast, is_active),
 	IsScrobbling = gen_server:call(maempsia_scrobble, is_active),
 	{ok, Conn}   = maempsia_erlmpd:connect(MPD),
@@ -159,7 +172,24 @@ respond_tab_start(MPD, RadioOptions, Req) ->
 			0))), <<"|">>, format_duration_time(ceil(binary_to_float
 			(proplists:get_value(duration, Status, <<"0.0">>))))],
 	respond_with_page([
-		<<"\t\t<form method=\"post\" action=\"modify_service.erl\">
+		<<"\t\t<form method=\"post\" action=\"control_player.erl\">
+			<table border=\"1\">
+			<tr>
+				<td rowspan=\"2\"><input type=\"submit\"
+					name=\"toggle_play_pause\"
+					value=\"Play/Pause\"/></td>
+				<td>">>, SongInfo, <<"</td>
+				<td rowspan=\"2\"><input type=\"submit\"
+					name=\"volume_down\"
+					value=\"Vol-\"/></td>
+				<td rowspan=\"2\">">>, VolumeInfo, <<"</td>
+				<td rowspan=\"2\"><input type=\"submit\"
+					name=\"volume_up\"
+					value=\"Vol+\"/></td>
+			</tr>
+			<tr><td>">>, TimeInfo, <<"</td></tr>\n\t\t</table>
+		</form>
+		<form method=\"post\" action=\"modify_service.erl\">
 			<table>
 			<tr>
 				<td><label for=\"radio_generator\">Radio
@@ -190,23 +220,6 @@ respond_tab_start(MPD, RadioOptions, Req) ->
 		generate_xhtml_playlist_top(<<"Action">>),
 		PLRows,
 		?XHTML_PLAYLIST_BOT,
-		<<"\t\t<form method=\"post\" action=\"control_player.erl\">
-			<table border=\"1\">
-			<tr>
-				<td rowspan=\"2\"><input type=\"submit\"
-					name=\"toggle_play_pause\"
-					value=\"Play/Pause\"/></td>
-				<td>">>, SongInfo, <<"</td>
-				<td rowspan=\"2\"><input type=\"submit\"
-					name=\"volume_down\"
-					value=\"Vol-\"/></td>
-				<td rowspan=\"2\">">>, VolumeInfo, <<"</td>
-				<td rowspan=\"2\"><input type=\"submit\"
-					name=\"volume_up\"
-					value=\"Vol+\"/></td>
-			</tr>
-			<tr><td>">>, TimeInfo, <<"</td></tr>\n\t\t</table>
-			</form>\n">>,
 		generate_xhtml_playlist_top(<<"PC">>),
 		ScheduleInfo,
 		?XHTML_PLAYLIST_BOT

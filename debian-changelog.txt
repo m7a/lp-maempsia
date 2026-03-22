@@ -1,3 +1,9 @@
+mdvl-maempsia (1.0.5) stable; urgency=medium
+
+  * Improve robustness of radio and startup behaviour
+
+ -- Ma_Sys.ma Linux-Fan <info@masysma.net>  Sun, 22 Mar 2026 22:56:05 +0100
+
 mdvl-maempsia (1.0.4) stable; urgency=medium
 
   * Make filter conformat to new sticker spec by myMPD
