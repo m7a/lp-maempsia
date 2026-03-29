@@ -1,5 +1,5 @@
 ---
-section: 42
+section: 32
 x-masysma-name: maempsia
 title: Ma_Sys.ma Erlang Music Player SIdecar Automation
 date: 2026/03/26 18:24:10
