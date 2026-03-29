@@ -22,10 +22,10 @@ as only one player was in use at the same time.
 
 Also, the Rust-based client RMPC (<https://rmpc.mierak.dev/>) was discovered
 and found to provide a configurable Terminal User Interface that could be
-configured to mimic MAENMPC rather closely. The RMPC TUI has lower latency and
-supports useful additional features compared to MAENMPC. E. g. RMPC supports
-browsing files and can display synchronized lyrics for songs. In summary, this
-made it a strong candidate client to prefer for interactive usage.
+configured to mimic MAENMPC closely. The RMPC TUI has lower latency and supports
+useful additional features compared to MAENMPC. E. g. RMPC supports browsing
+files and can display synchronized lyrics as a song is played. In summary, this
+makes it a strong candidate client to prefer for interactive usage.
 
 Together with some ideas to revise the algorithms and features of MAENMPC
 (e. g. to get its playlist generation working on a phone without running into
@@ -39,10 +39,10 @@ _Ma_Sys.ma Erlang Music Player SIdecar Automation_.
 Abstract
 ========
 
-MAEMPSIA is an experimental server-based MPD client. It is intended to run in
-parallel to a primary/interactive MPD client and as such, only very limited
-interactive functionality and focuses on background tasks which are typically
-not found in interactive clients.
+MAEMPSIA is an experimental utility MPD client. It is intended to run in
+parallel to a primary/interactive MPD client. A such, MAEMPSIA offers only very
+limited interactive functionality and focuses on background tasks which are
+typically not found in interactive clients.
 
 ![The rough beauty of the MAEMPSIA Web Interface](maempsia_att/maempsia_start.png)
 
@@ -52,9 +52,9 @@ ratings
     It is mostly not intended to use the song ratings interactively from
     MAEMPSIA but they are processed by the _playlist generation_ feature.
 play counts
-:   Support for song play counts via the `playCount` sticker in the MPD database.
-    Additionally, an automatic updating of `playCount` stickers from a
-    Maloja instance is possible.
+:   Support for song play counts via the `playCount` sticker in the MPD
+    database. Additionally, an automatic updating of `playCount` stickers with
+    data from a Maloja server is possible.
 scrobbling
 :   Support for scrobbling to a Maloja server or JSON file. The JSON file uses
     the data format of the Maloja API such that it can later be easily imported
@@ -81,10 +81,10 @@ Feature              MAENMPC  MAEMPSIA  Notable Differences
 -------------------  -------  --------  -----------------------------------------------------------------------------------------
 ratings              Y        Y         MAEMPSIA supports album ratings in addition to song ratings
 play counts          Y        Y         MAEMPSIA maintains playCount stickers, MAENMPC supports those only in a read-only fashion
-scrobbling           Y        Y         none
-news podcasts        Y        Y         MAEMPSIA has removed some multi-player related advanced stuff like the SSH client
-playlist generation  Y        Y         MAEMPSIA uses a modified algorithm (see below)
-web interface        N        Y         New feature with fewer capabilities compared to the TUI of MAENMPC
+scrobbling           Y        Y         In addition to the scrobbling, MAEMPSIA maintains `playCount` stickers
+news podcasts        Y        Y         MAEMPSIA doesn't offer multi-player related advanced features like the SSH client
+playlist generation  Y        Y         MAEMPSIA uses a modified algorithm (see section _Radio Playlist Generation Algorithm_)
+web interface        N        Y         The MAEMPSIA web interface has fewer capabilities compared to the TUI of MAENMPC
 
 WARNING - Maintenance Status
 ============================
@@ -99,9 +99,9 @@ replicating some of the features to RMPCD
 (<https://github.com/mierak/rmpc/tree/master/rmpcd>).
 Specifically, RMPCD very much looks like it is designed to solve the same
 problem as MAEMPSIA i. e. providing a sidecar server which runs those tasks
-which are not nice to integrate with an interactive player. Given its extensible
-nature with Lua scripting, it could be possible to replace MAEMPSIA with RMPCD
-plugins.
+which are not well-suited for integration into an interactive player. Given its
+extensible architecture with Lua scripting, it could be possible to replace
+MAEMPSIA with RMPCD plugins.
 
 Whether MAEMPSIA is here to stay is thus dependent on whether there is some
 advantage to be gained from RMPCD integration in favor of the completely
@@ -114,7 +114,9 @@ Setup Instructions
 
 The setup is similar to the one described for
 [maenmpc(32)](../32/maenmpc.xhtml) as MAEMPSIA uses a similar technical
-foundation: It is also built using Erlang.
+foundation: It is also built using Erlang. Refer to the MAENMPC documentation
+for more details, below sections capture the gist of what is necessary to build
+and run MAEMPSIA.
 
 ## Installation on Debian-based OS
 
@@ -151,11 +153,12 @@ Configuration
 
 Like MAENMPC, MAEMPSIA requires configuration to run successfully. An example
 configuration is supplied as `config/sys.config` along the source code of the
-program. Unless a command-line argument `-config <FILE>` is given, this config
-file is used automatically.
+program. Unless a command-line argument `-config <FILE>` is given, this example
+configuration file is used automatically.
 
-Local changes can be performed on a copy which is passed via the `-config` CLI
-argument or directly on the source file level before compiling.
+Local changes can be performed on a copy which is passed via the
+`-config <FILE>` CLI argument or directly on the source file level before
+compiling.
 
 ~~~{.erlang}
 [{maempsia, [
@@ -264,7 +267,8 @@ Section `podcast`
 :   Configures podcasts to automatically check using the `podget` program which
     must be installed and available in the `$PATH`. This is similar to
     MAENMPC except that no SSH connection and no resampling can be configured
-    here.
+    here. As a consequence, the `Resampler` dependency is no longer needed,
+    either.
 Section `logger`
 :   Configures the locations of log files where MAEMPSIA prints status
     information. Also, the log level can be set near this section to get more
@@ -311,14 +315,17 @@ USAGE maempsia -generate-schedule M3U [-generator GEN] [-length COUNT]
                    `maloja/key` is absent in config. Does not update MPD.
 ~~~
 
+Note that the `-config <FILE>` is not documented here because it is offered
+by Erlang/OTP and not specific to MAEMPSIA.
+
 Radio Playlist Generation Algorithm
 ===================================
 
 The idea behind the radio playlist is to follow a random shuffle of songs
 establishing that within a short time frame of listening (here measured in
 songs) a nice song occurs and also that the songs with low play counts are
-generally preferred such that repeating the scheme eventually causes the whole
-song database to be played.
+generally preferred such that repeating the algorithm eventually causes the
+whole song database to be played.
 
 I. e. it is a shuffle scheme with certain biases to make the random playlist
 more enjoyable to listen to.
@@ -337,7 +344,7 @@ also ported to MAENMPC was based on the following general ideas:
    far the relative progress in the respective list is i. e. prefer to append
    from the list of least progress.
 
-This was rooted in the assumption that in the general case, the whole songs
+This was rooted in the assumption that in the general case, the whole song
 database should be processed hence this list-centric view. Also, in the
 typical case of not repeating the nicely rated list, this would cause no song
 to be repeated but also if there was some “below average” rated songs they
@@ -432,6 +439,46 @@ again 3x unrated (1, 1, 1) another nice one (2) and then one unrated, one
 two-star and again an unrated one (1, 0, 1) followed again by a nicely rated
 one (2).
 
+Rationale for redundantly using playCount stickers and Maloja
+=============================================================
+
+A notable change compared to MAENMPD is the extended usage of the `playCount`
+sticker in MPD which used to be processed read-only by MAENMPD but which
+MAEMPSIA writes to as part of its scrobbling client.
+
+The ideas behind adding extended `playCount` were as follows:
+
+ * Algorithms like the playlist generation could use access it in an uniform
+   way alongside the `rating` sticker which was already required for them
+   before.
+ * The playlist generation no longer requires a dependency on Maloja and may
+   thus benefit more users.
+ * The special handling for phone usage (which used `playCount` already before)
+   could be reduced.
+ * The `playCount` sticker can be viewed from RMPC offering a way to check the
+   play count interactively. (MAENMPC did this by querying Maloja on-demand, but
+   this is not easily done with RMPC and was a little bit error prone to begin
+   with).
+
+The ideas behind still keeping the Maloja scrobbling and adding the
+synchronization on startup were as follows:
+
+ * Scrobbling is more precise than play count. At any time, play count can be
+   recovered from the scrobbling but not the other way around.
+ * It is nice to browse the history of played songs and view trends in the
+   Maloja web interface hence this has a value of its own.
+ * Scrobbling is helpful for the distributed collection of scrobbles which can
+   then be merged into one “reference” Maloja instance.
+ * The synchronization is limited to only ever incrementing the `playCount`
+   i.e. if there is some song that is not found in the scrobbles, but which
+   was played while MAEMPSIA was active, its `playCount` may become higher
+   than the scrobble count retrieved from Maloja (until metadata in Maloja
+   have been fixed at least). The synchronization then prefers the higher value
+   to prevent the new playlist generation algorithm from insisting on enqueuing
+   the same songs again and again. (This had happened a few times in the past
+   with MAENMPC and if the song was OK it was hard to notice but still
+   subconciously annoying...)
+
 Future Directions
 =================
 
@@ -454,6 +501,10 @@ See Also
  * RMPC <https://rmpc.mierak.dev/> -- TUI
  * myMPD <https://jcorporation.github.io/myMPD/> -- web based
  * Cantata <https://github.com/nullobsi/cantata> -- QT
+
+## Compatible Software
+
+ * Maloja <https://github.com/krateng/maloja>
 
 ## Relevant Ma_Sys.ma Pages Related to Audio Topics
 
