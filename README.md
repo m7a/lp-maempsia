@@ -16,9 +16,9 @@ Background
 ==========
 
 After upgrading my audio setup (cf.
-[aes67_music_listening(37)](../37/aes67_music_listening.xhtml), the need for the
-_multi-player_ capabilities of [maenmpc(32)](../32/maenmpc.xhtml) was eliminated
-as only one player was in use at the same time.
+[aes67_music_listening(37)](../37/aes67_music_listening.xhtml)), the need for
+the _multi-player_ capabilities of [maenmpc(32)](../32/maenmpc.xhtml) was
+eliminated as only one player was in use at the same time.
 
 Also, the Rust-based client RMPC (<https://rmpc.mierak.dev/>) was discovered
 and found to provide a configurable Terminal User Interface that could be
