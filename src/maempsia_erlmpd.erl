@@ -1,9 +1,9 @@
 -module(maempsia_erlmpd).
 -export([connect/1, foreach_song/3, get_playcount/2, get_rating/2,
-	get_album_rating/2, get_album_rating_by_filter/2,
-	set_album_rating_by_filter/3, delete_album_rating_by_filter/2,
-	get_status_props/1, get_artist/1, normalize_safe/1,
-	normalize_strong/1]).
+	get_album_rating/2, make_album_key/1, make_album_filter/1,
+	get_album_rating_by_filter/2, set_album_rating_by_filter/3,
+	delete_album_rating_by_filter/2, get_status_props/1, get_artist/1,
+	normalize_safe/1, normalize_strong/1]).
 -include_lib("kernel/include/logger.hrl").
 -define(RATING_UNRATED, -1).
 -define(RATING_NOTPOSS, -2).
@@ -53,25 +53,33 @@ get_rating(Conn, URI) ->
 	end.
 
 get_album_rating(Conn, Song) ->
+	case make_album_filter(make_album_key(Song)) of
+	undefined -> ?RATING_NOTPOSS;
+	Filter    -> get_album_rating_by_filter(Conn, Filter)
+	end.
+
+make_album_key(Song) ->
 	AlbumArtist = case proplists:get_value('AlbumArtist', Song) of
-			undefined -> proplists:get_value('Artist', Song);
-			AA        -> AA
-			end,
+		undefined -> proplists:get_value('Artist', Song);
+		AA        -> AA
+		end,
 	AlbumTitle = proplists:get_value('Album', Song),
-	Date = proplists:get_value('Date', Song),
 	if 
 	(AlbumArtist =:= undefined) or (AlbumTitle =:= undefined) ->
-		?RATING_NOTPOSS;
-	Date =:= undefined ->
-		get_album_rating_by_filter(Conn,
-				{land, [{tagop, albumartist, eq, AlbumArtist},
-					{tagop, album,       eq, AlbumTitle}]});
+		undefined;
 	true ->
-		get_album_rating_by_filter(Conn,
-				{land, [{tagop, albumartist, eq, AlbumArtist},
-					{tagop, album,       eq, AlbumTitle},
-					{tagop, date,        eq, Date}]})
+		{AlbumArtist, AlbumTitle, proplists:get_value('Date', Song)}
 	end.
+
+make_album_filter({AlbumArtist1, AlbumTitle1, undefined}) ->
+	{land, [{tagop, albumartist, eq, AlbumArtist1},
+		{tagop, album,       eq, AlbumTitle1}]};
+make_album_filter({AlbumArtist2, AlbumTitle2, Date}) ->
+	{land, [{tagop, albumartist, eq, AlbumArtist2},
+		{tagop, album,       eq, AlbumTitle2},
+		{tagop, date,        eq, Date}]};
+make_album_filter(_Default) ->
+	undefined.
 
 get_album_rating_by_filter(Conn, Filter) ->
 	case erlmpd:sticker_get(Conn, "filter", Filter, "rating") of

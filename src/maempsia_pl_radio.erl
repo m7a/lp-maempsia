@@ -16,6 +16,7 @@ generate(MPD, GRC, PLRC) ->
 		URI = proplists:get_value(file, Entry),
 		insert_rated(Conn, URI, maempsia_erlmpd:get_rating(Conn, URI))
 	end),
+	erlmpd:disconnect(Conn),
 	State = {
 		{query_by_rat_eq(0, 0), 0, 1},
 		{query_by_rat_eq(1, 0), 0, 1},
