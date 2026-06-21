@@ -1,6 +1,7 @@
 -module(maempsia_pl_albums_hits).
 -export([generate/3]).
 -include_lib("kernel/include/logger.hrl").
+-define(RATING_UNRATED, -1).
 
 % TODO x undocumented bug/assumption: highly rated individual songs can bypass filter. This is currently true for the Ma_Sys.ma deployment and improves performance (no need to check is performed if individual songs may be included per the filters...).
 
@@ -105,8 +106,8 @@ check_whether_to_include_full_album(Conn, Filter, Key) ->
 		[] -> false;
 		Lines ->
 			URIs    = [proplists:get_value(file, L) || L <- Lines],
-			URIRat  = [{URI, maempsia_erlmpd:get_rating(Conn,
-							URI)} || URI <- URIs],
+			URIRat  = [{URI, get_rating_with_default(Conn, URI)}
+							|| URI <- URIs],
 			AccRat  = length([URI || {URI, Rating} <- URIRat,
 							Rating >= 6]),
 			HighRat = length([URI || {URI, Rating} <- URIRat,
@@ -116,6 +117,12 @@ check_whether_to_include_full_album(Conn, Filter, Key) ->
 			false -> false
 			end
 		end
+	end.
+
+get_rating_with_default(Conn, URI) ->
+	case maempsia_erlmpd:get_rating(Conn, URI) of
+	?RATING_UNRATED -> 6;
+	Rating          -> Rating
 	end.
 
 play_count_table_to_ranked_list(Table) ->
@@ -153,7 +160,7 @@ merge_by_progress(Conn, Filter, ST, AT, [], [RA|T], Result, Len) ->
 	merge_by_progress(Conn, Filter, ST, AT, [], T, [URIS|Result],
 							Len - length(URIS));
 merge_by_progress(Conn, Filter, ST, AT, [RSH|RST]=RS, RA, Result, Len)
-		when ((ST - length(RS)) / ST) > ((AT - length(RA)) / AT) ->
+		when ((ST - length(RS)) / ST) < ((AT - length(RA)) / AT) ->
 	merge_by_progress(Conn, Filter, ST, AT, RST, RA, [RSH|Result], Len - 1);
 merge_by_progress(Conn, Filter, ST, AT, RS, [RAH|RAT], Result, Len) ->
 	URIS = uris_for_album(Conn, Filter, RAH),
@@ -167,8 +174,7 @@ uris_for_album(Conn, Filter, AlbumKey) ->
 				erlmpd:find(Conn, {land, [Filter, AFilter]})],
 	{ReverseRemove, false} = lists:foldl(fun(URI, {Acc, IsActive}) ->
 			case IsActive of
-			true -> case maempsia_erlmpd:get_rating(Conn, URI)
-									< 6 of
+			true -> case get_rating_with_default(Conn, URI) < 6 of
 				true  -> {[URI|Acc], true};
 				false -> {Acc, false}
 				end;
