@@ -1,3 +1,9 @@
+mdvl-maempsia (1.0.6) stable; urgency=medium
+
+  * Build updated package
+
+ -- Ma_Sys.ma Linux-Fan <info@masysma.net>  Sun, 21 Jun 2026 20:43:01 +0200
+
 mdvl-maempsia (1.0.5) stable; urgency=medium
 
   * Improve robustness of radio and startup behaviour
