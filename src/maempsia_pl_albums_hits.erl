@@ -2,7 +2,7 @@
 -export([generate/3]).
 -include_lib("kernel/include/logger.hrl").
 
-% TODO ASSUMPTIONS: URIs must be binaries (otherwise it will flatten wrongly), Highly rated individual songs may bypass filter.
+% TODO x undocumented bug/assumption: highly rated individual songs can bypass filter. This is currently true for the Ma_Sys.ma deployment and improves performance (no need to check is performed if individual songs may be included per the filters...).
 
 generate(MPD, GRC, _PLRC) ->
 	Len          = maps:get(schedule_len, GRC),
@@ -20,11 +20,13 @@ generate(MPD, GRC, _PLRC) ->
 	lists:flatten(lists:reverse(URIS)).
 
 find_highly_rated_albums(Conn, Filter) ->
-	 lists:foldl(fun(AlbumFilter, AlbumTable) ->
-			find_and_add_album(Conn, Filter, AlbumFilter,
-						fun add_album/3, AlbumTable)
+	 lists:foldl(fun(StickerMeta, AlbumTable) ->
+			find_and_add_album(Conn, Filter,
+				{raw, proplists:get_value(file, StickerMeta)},
+				fun add_album/3, AlbumTable)
 		end, maps:new(),
-		erlmpd:sticker_find(Conn, "filter", "", "rating", gt, "6", [])).
+		erlmpd:sticker_find(Conn, "filter", {raw, <<>>},
+							"rating", gt, "6", [])).
 
 find_and_add_album(Conn, Filter, AlbumFilter, CB, AlbumTable) ->
 	BaseFilter = {land, [Filter, AlbumFilter]},
@@ -102,7 +104,7 @@ check_whether_to_include_full_album(Conn, Filter, Key) ->
 		case erlmpd:find(Conn, {land, [Filter, AFilter]}) of
 		[] -> false;
 		Lines ->
-			URIs    = [poplists:get_value(file, L) || L <- Lines],
+			URIs    = [proplists:get_value(file, L) || L <- Lines],
 			URIRat  = [{URI, maempsia_erlmpd:get_rating(Conn,
 							URI)} || URI <- URIs],
 			AccRat  = length([URI || {URI, Rating} <- URIRat,
@@ -134,7 +136,7 @@ median(Unsorted) ->
 	(lists:nth(Mid + Rem, Sorted) + lists:nth(Mid + 1, Sorted)) / 2.
 
 merge_by_progress(Conn, Filter, RankedSongs, RankedAlbums, Len) ->
-	SongsTotal = length(RankedSongs),
+	SongsTotal  = length(RankedSongs),
 	AlbumsTotal = length(RankedAlbums),
 	merge_by_progress(Conn, Filter, SongsTotal, AlbumsTotal,
 					RankedSongs, RankedAlbums, [], Len).
@@ -161,7 +163,7 @@ merge_by_progress(Conn, Filter, ST, AT, RS, [RAH|RAT], Result, Len) ->
 uris_for_album(Conn, Filter, AlbumKey) ->
 	% TODO x converts rather often between key and filter, mabye it could be made more efficient by establishing filter as the primary key - it would be slightly less robust but more “correct” wrt. “first song makes album” not being a generally valid way to obtain the filter i.e. if there is a better filter in the DB it might be preferrable over our synthetic ones...?
 	AFilter = maempsia_erlmpd:make_album_filter(AlbumKey),
-	URIs    = [proplists:get_value(uri, Line) || Line <-
+	URIs    = [proplists:get_value(file, Line) || Line <-
 				erlmpd:find(Conn, {land, [Filter, AFilter]})],
 	{ReverseRemove, false} = lists:foldl(fun(URI, {Acc, IsActive}) ->
 			case IsActive of
@@ -173,4 +175,4 @@ uris_for_album(Conn, Filter, AlbumKey) ->
 			false -> {Acc, false}
 			end
 		end, {[], true}, lists:reverse(URIs)),
-	URIs - ReverseRemove.
+	URIs -- ReverseRemove.
